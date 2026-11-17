@@ -119,6 +119,33 @@ combined run-to-run range). A null result is reported as a null result and recor
 nothing — a small difference inside the noise is not claimed as a win. Use
 `--samples <n>` to lower the noise floor when you need to detect a small effect.
 
+## What the benchmark measures
+
+`--benchmark` measures **decode tokens/second** (and the prefill rate) by calling
+the local runtime's HTTP API (`/api/generate` with `stream: false`), which returns
+exact token counts and durations rather than a wall-clock guess. It takes several
+samples, discards a warm-up model load, and reports the **median** plus the
+run-to-run **spread**.
+
+That spread is the whole point. Inference timing on a desktop is noisy — on a test
+host the spread was ±7% run-to-run, so a single before/after comparison can show a
+"15% improvement" that is pure noise. So `--calibrate` refuses to claim a change
+smaller than the **combined** spread of the two measurements, and prints a null
+result as a null result:
+
+```
+  baseline: qwen2.5-coder:14b, 10.29 tok/s, 2638.9 ms, 5549 MiB free
+  current : qwen2.5-coder:14b, 10.16 tok/s, 2860.5 ms, 5541 MiB free
+  noise floor: ±13.9%
+
+No significant change: decode tokens/s -1.3% is within the ±13.9% noise floor
+of this host.
+Nothing recorded — a null result is not evidence of an improvement.
+```
+
+A tool that will tell you *"this didn't help"* is more useful than one that always
+claims a win.
+
 ## Safety
 
 - **Read-only by default.** Profiling and planning never change anything.
