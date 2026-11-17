@@ -1,16 +1,67 @@
 # ai-host-optimizer
 
+[![npm](https://img.shields.io/npm/v/ai-host-optimizer.svg)](https://www.npmjs.com/package/ai-host-optimizer)
+[![CI](https://github.com/williamdoring-prog/ai-host-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/williamdoring-prog/ai-host-optimizer/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-2ea44f)](https://registry.modelcontextprotocol.io/v0.1/servers?search=ai-host-optimizer)
+
 **Profile a host, plan AI-model optimizations, and apply them — reversibly, with consent.**
 
-An MCP server *and* a CLI that inspects your machine, presents a **checklist** of
-AI-optimization options (each with an **estimated improvement** and its **resource
-footprint**), resolves a **conflict-free plan**, and — with explicit consent —
-applies the selected options by writing files into a **managed config directory**.
-Everything is **dry-run by default** and **reversible**.
+Every "speed up your local LLM" guide lists the same tweaks (Flash Attention,
+KV-cache quantization, keep-alive, NUMA). The lists are mostly right — they just
+never tell you **which of them helps on *your* machine**, or by how much.
 
-> **Status: 1.0.** The profiler and the planner are read-only. The applier writes
-> only inside `~/.config/ai-host-optimizer` (platform-appropriate), never touches
+This tool profiles the host, presents the checklist with an **honest confidence
+tier** on every number, resolves a **conflict-free plan**, and — the part that
+matters — **measures** the options you apply, with a noise floor, so a null result
+is reported as a null result instead of a fake win.
+
+It is an MCP server *and* a CLI. Applying is **dry-run by default**, writes only
+into a **managed config directory**, and is **reversible**.
+
+> **Status: 1.2.** Profiling and planning are read-only. The applier writes only
+> inside `~/.config/ai-host-optimizer` (platform-appropriate), never touches
 > system files, never runs a shell, and never escalates privilege.
+
+## Quickstart
+
+```bash
+npx -y ai-host-optimizer --cli
+```
+
+That prints a read-only profile and the checklist for your machine (trimmed):
+
+```
+Host profile (read-only)
+  role     : workstation
+  platform : windows — x64
+  cpu      : Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz (16 cores)
+  memory   : 16 GiB total, 8 GiB free
+  gpu      : nvidia NVIDIA GeForce RTX 3080 (10240 MiB VRAM)
+  cluster  : 1 GPU(s)
+  tooling  : ollama, python3, docker
+
+Optimization checklist (read-only)
+
+[ ] Enable Flash Attention  (flash-attention)
+      improves decode tokens/s: qualitative (tier C)
+      risk low; fully-reversible; privilege false
+      stackable: throughput-stack
+      synergy: kv-cache-quant-q8
+
+[ ] Quantize KV cache to q8_0  (kv-cache-quant-q8)
+      improves KV cache memory: 50% (tier B)
+      risk low; fully-reversible; privilege false
+      ...
+```
+
+Then measure whether a change actually helped:
+
+```bash
+ai-host-optimizer --benchmark --save-baseline --samples 5   # before
+ai-host-optimizer --apply --select flash-attention --yes    # then restart the runtime
+ai-host-optimizer --calibrate --select flash-attention       # after → tier A, or "no change"
+```
 
 ## Why
 
@@ -22,11 +73,12 @@ you what is worth doing — **honestly**, labelling each estimate by confidence.
 ## Install
 
 ```bash
-# one-off
-npx ai-host-optimizer --cli
+# zero-install (downloads and runs)
+npx -y ai-host-optimizer --cli
 
 # or globally
 npm install -g ai-host-optimizer
+ai-host-optimizer --cli        # or the short alias:  aiho --cli
 ```
 
 ## Usage
@@ -174,7 +226,7 @@ claims a win.
   applyable. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
 - **M2b** — distribution: official MCP Registry entry **live**
-  (`io.github.williamdoring-prog/ai-host-optimizer@1.1.1`) + CI publish workflow;
+  (`io.github.williamdoring-prog/ai-host-optimizer@1.2.0`) + CI publish workflow;
   directory listings next. 🚧
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
@@ -182,8 +234,9 @@ claims a win.
 
 - [`docs/architecture.md`](docs/architecture.md) — one core, many front-ends; detection coverage; roadmap.
 - [`docs/registry-schema.md`](docs/registry-schema.md) — the option schema and the honesty contract.
-- [`docs/publishing.md`](docs/publishing.md) — releasing to npm and finishing the repo page.
-- [`SECURITY.md`](SECURITY.md) — security policy and the read-only design commitments.
+- [`docs/publishing.md`](docs/publishing.md) — releasing to npm, the MCP Registry, and the directories.
+- [`docs/launch.md`](docs/launch.md) — launch copy (Show HN / r/LocalLLaMA).
+- [`SECURITY.md`](SECURITY.md) — security policy and the design commitments.
 
 ## Contributing
 
