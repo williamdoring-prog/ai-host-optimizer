@@ -1,6 +1,6 @@
 {
   "name": "ai-host-optimizer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Profile a host and recommend AI-model optimizations. Read-only by default; applies only user-selected, reversible changes with explicit consent.",
   "type": "module",
   "license": "MIT",

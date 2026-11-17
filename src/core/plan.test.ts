@@ -60,3 +60,51 @@ test("plan rejects unknown ids", () => {
   assert.equal(plan.steps.length, 0);
   assert.ok(plan.rejections.some((r) => r.id === "does-not-exist"));
 });
+
+test("calibration promotes an option to tier A and replaces the estimate", () => {
+  const calibrations = {
+    "kv-cache-quant-q8": {
+      optionId: "kv-cache-quant-q8",
+      metric: "decode tokens/s",
+      delta: 0.17,
+      tier: "A" as const,
+      measuredAt: new Date().toISOString(),
+      samples: 1,
+      method: "test",
+    },
+  };
+  const plan = buildPlan(["kv-cache-quant-q8"], linuxProfile, OPTIONS, calibrations);
+  const step = plan.steps.find((s) => s.option.id === "kv-cache-quant-q8")!;
+  assert.equal(step.option.expectedImprovement.tier, "A");
+  assert.equal(step.option.expectedImprovement.estimate, 0.17);
+  assert.equal(plan.combined!.tier, "A");
+  assert.match(step.option.expectedImprovement.method ?? "", /measured/i);
+});
+
+test("without calibration the estimate stays tier B", () => {
+  const plan = buildPlan(["kv-cache-quant-q8"], linuxProfile, OPTIONS);
+  const step = plan.steps.find((s) => s.option.id === "kv-cache-quant-q8")!;
+  assert.equal(step.option.expectedImprovement.tier, "B");
+});
+
+test("a null calibration result does NOT promote or inflate the estimate", () => {
+  const calibrations = {
+    "kv-cache-quant-q8": {
+      optionId: "kv-cache-quant-q8",
+      metric: "decode tokens/s",
+      delta: 0.02,
+      noiseFloor: 0.05,
+      significant: false,
+      tier: "C" as const,
+      measuredAt: new Date().toISOString(),
+      samples: 3,
+      method: "test",
+    },
+  };
+  const plan = buildPlan(["kv-cache-quant-q8"], linuxProfile, OPTIONS, calibrations);
+  const step = plan.steps.find((s) => s.option.id === "kv-cache-quant-q8")!;
+  // The original tier-B estimate survives; the null result is only a note.
+  assert.equal(step.option.expectedImprovement.tier, "B");
+  assert.equal(step.option.expectedImprovement.estimate, 0.5);
+  assert.match(step.option.expectedImprovement.method ?? "", /no change beyond the noise floor/i);
+});

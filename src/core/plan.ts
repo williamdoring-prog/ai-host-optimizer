@@ -10,6 +10,7 @@ import type {
   ImprovementTier,
   OptimizationOption,
 } from "./types.js";
+import type { CalibrationEntry } from "./calibration.js";
 import { isApplicable } from "./checklist.js";
 
 export interface PlanStep {
@@ -65,12 +66,15 @@ export function combineEstimates(values: number[]): number {
  *  - `requires` are pulled in automatically (marked implicit);
  *  - `conflictsWith` pairs are rejected;
  *  - at most one member of an `exclusiveGroup` is kept (first wins);
- *  - stackable options with numeric estimates are combined multiplicatively.
+ *  - stackable options with numeric estimates are combined multiplicatively;
+ *  - where a MEASURED calibration exists, it replaces the estimate and the
+ *    option is promoted to tier A.
  */
 export function buildPlan(
   selectedIds: string[],
   profile: HostProfile,
   options: OptimizationOption[],
+  calibrations: Record<string, CalibrationEntry> = {},
 ): Plan {
   const byId = new Map(options.map((o) => [o.id, o]));
   const rejections: Rejection[] = [];
@@ -79,10 +83,43 @@ export function buildPlan(
   const chosenIds = new Set<string>();
   const implicitIds = new Set<string>();
 
+  /**
+   * Where a MEASURED calibration exists, it replaces the estimate and the option
+   * is promoted to tier A — but ONLY if the change exceeded the host's noise
+   * floor. A null result (no detectable change) is recorded as a note and the
+   * original estimate is left intact rather than dressed up as a measurement.
+   */
+  const applyCalibration = (option: OptimizationOption): OptimizationOption => {
+    const cal = calibrations[option.id];
+    if (!cal) return option;
+
+    if (cal.significant === false) {
+      return {
+        ...option,
+        expectedImprovement: {
+          ...option.expectedImprovement,
+          method:
+            `${option.expectedImprovement.method ?? ""} ` +
+            `[on this host, no change beyond the noise floor was measured]`.trim(),
+        },
+      };
+    }
+
+    return {
+      ...option,
+      expectedImprovement: {
+        metric: cal.metric,
+        estimate: cal.delta,
+        tier: "A",
+        method: `measured on this host${cal.model ? ` on "${cal.model}"` : ""} (${cal.samples} observation(s))`,
+      },
+    };
+  };
+
   const addOption = (option: OptimizationOption, implicit: boolean) => {
     if (chosenIds.has(option.id)) return;
     chosenIds.add(option.id);
-    chosen.push(option);
+    chosen.push(applyCalibration(option));
     if (implicit) {
       implicitIds.add(option.id);
       notes.push(`${option.id} included automatically (prerequisite).`);

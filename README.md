@@ -46,6 +46,12 @@ ai-host-optimizer --revert
 ai-host-optimizer --benchmark --save-baseline   # before
 ai-host-optimizer --benchmark                   # after (compares to baseline)
 
+# calibrate: measure an option's real effect on THIS host and promote it to tier A
+ai-host-optimizer --benchmark --save-baseline --samples 5
+ai-host-optimizer --apply --select flash-attention --yes     # then restart the runtime
+ai-host-optimizer --calibrate --select flash-attention --samples 5
+ai-host-optimizer --plan --select flash-attention            # now shows [measured]
+
 # generate declarative accessories from the same registry
 ai-host-optimizer --generate ansible
 ai-host-optimizer --generate dockerfile
@@ -75,24 +81,33 @@ Add to your MCP client (e.g. Claude Desktop):
 }
 ```
 
-Tools exposed (M0):
+Tools exposed:
 
 | Tool | Purpose |
 |---|---|
 | `profile` | Read-only host profile (OS, CPU, memory, GPU, detected tooling) |
 | `checklist` | Optimization options with estimated improvement + resource footprint |
+| `plan` | Conflict-free plan for selected ids, with a combined estimate (uses tier-A calibrations when present) |
+| `benchmark` | Measure local inference rate (decode tokens/s) + the noise floor — tier-A evidence |
 | `validate-registry` | Registry consistency check (development aid) |
 
 ## Honesty contract
 
 Every estimate carries a confidence tier:
 
-- **A — measured** on your host (requires M1's benchmark).
+- **A — measured** on your host (via `--benchmark` / `--calibrate`).
 - **B — labelled estimate** with a cited method.
 - **C — qualitative** (direction only, no number).
 
 Tier B/C estimates are **never** presented as measurements. A combined estimate is
 only shown once its inputs are trustworthy (see the project plan).
+
+**Calibration is honest about noise.** `--benchmark` takes several samples and
+reports their spread; `--calibrate` compares before/after and only promotes an
+option to tier A when the change **exceeds the host's own noise floor** (the
+combined run-to-run range). A null result is reported as a null result and records
+nothing — a small difference inside the noise is not claimed as a win. Use
+`--samples <n>` to lower the noise floor when you need to detect a small effect.
 
 ## Safety
 
@@ -112,7 +127,7 @@ only shown once its inputs are trustworthy (see the project plan).
 
 - **M0** — read-only profiler, registry, checklist, CLI + MCP. ✅
 - **M1** — reversible applier (user-space), plan/apply/revert, on-host benchmark. ✅
-- **M1b** — calibrated tier-B coefficient table. *(planned)*
+- **M1b** — measured tier-A calibration (median-of-samples benchmark, noise floor, per-option promotion). ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
 - **M2b** — distribution to MCP registries. *(planned)*
 - **M4** — browser UI and Tauri desktop UI. *(planned)*

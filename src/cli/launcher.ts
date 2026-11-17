@@ -30,6 +30,7 @@ import type { SystemRole } from "../core/types.js";
 import { buildPlan } from "../core/plan.js";
 import { applyPlan, buildApplyPlan, managedDir, revert } from "../core/applier.js";
 import { compare, loadBaseline, runBenchmark, saveBaseline } from "../core/benchmark.js";
+import { loadCalibrations, recordCalibration } from "../core/calibration.js";
 import {
   generateAnsible,
   generateChecklistMarkdown,
@@ -50,7 +51,9 @@ export interface CliArgs {
   apply?: boolean;
   revert?: boolean;
   benchmark?: boolean;
+  calibrate?: boolean;
   saveBaseline?: boolean;
+  samples?: number;
   generate?: string;
   select?: string[];
   yes?: boolean;
@@ -93,9 +96,18 @@ export function parseArgs(argv: string[]): CliArgs {
       case "--benchmark":
         args.benchmark = true;
         break;
+      case "--calibrate":
+        args.calibrate = true;
+        break;
       case "--save-baseline":
         args.saveBaseline = true;
         break;
+      case "--samples": {
+        const value = Number(argv[i + 1]);
+        if (Number.isInteger(value) && value > 0 && value <= 50) args.samples = value;
+        i++;
+        break;
+      }
       case "--yes":
       case "-y":
         args.yes = true;
@@ -147,7 +159,9 @@ Commands:
   --apply [--yes]                   apply the plan (DRY-RUN unless --yes)
   --revert                          undo the last apply
   --benchmark [--save-baseline]     measure the host (tier A)
+  --calibrate --select <ids>        record a MEASURED (tier A) delta for options
   --generate <kind>                 ansible | dockerfile | checklist
+  --samples <n>                     samples per measurement (default 3, max 50)
 
 Options:
   --select <id,id,...>              option ids (see --cli output)
@@ -266,12 +280,21 @@ export async function runCli(role?: SystemRole): Promise<void> {
 /** --plan */
 export async function runPlan(role: SystemRole, select: string[]): Promise<void> {
   const profile = await profileHost(role);
-  const plan = buildPlan(select, profile, OPTIONS);
+  const calibrations = await loadCalibrations();
+  const plan = buildPlan(select, profile, OPTIONS, calibrations);
 
   stdout.write(`Plan for ${select.length} requested option(s)\n\n`);
   if (plan.steps.length === 0) stdout.write("  (no applicable options)\n");
   for (const step of plan.steps) {
-    stdout.write(`  + ${step.option.name} (${step.option.id})${step.implicit ? " [prerequisite]" : ""}\n`);
+    const o = step.option;
+    const est =
+      o.expectedImprovement.estimate !== undefined
+        ? ` ${Math.round(o.expectedImprovement.estimate * 100)}%`
+        : "";
+    const measured = o.expectedImprovement.tier === "A" ? " [measured]" : "";
+    stdout.write(
+      `  + ${o.name} (${o.id})${step.implicit ? " [prerequisite]" : ""}${measured}${est}\n`,
+    );
   }
   if (plan.rejections.length) {
     stdout.write("\nRejected:\n");
@@ -290,7 +313,8 @@ export async function runPlan(role: SystemRole, select: string[]): Promise<void>
 /** --apply */
 export async function runApply(role: SystemRole, select: string[], yes: boolean): Promise<void> {
   const profile = await profileHost(role);
-  const plan = buildPlan(select, profile, OPTIONS);
+  const calibrations = await loadCalibrations();
+  const plan = buildPlan(select, profile, OPTIONS, calibrations);
 
   if (plan.steps.length === 0) {
     stdout.write("Nothing to apply (no applicable options).\n");
@@ -351,12 +375,19 @@ export async function runRevert(): Promise<void> {
 }
 
 /** --benchmark */
-export async function runBenchmarkCmd(saveAsBaseline: boolean): Promise<void> {
+export async function runBenchmarkCmd(saveAsBaseline: boolean, samples?: number): Promise<void> {
   stdout.write("Running benchmark (tier A where measurable)…\n");
-  const result = await runBenchmark();
+  const result = await runBenchmark(undefined, samples);
   stdout.write(`  time     : ${result.timestamp}\n`);
   if (result.model) stdout.write(`  model    : ${result.model}\n`);
+  if (result.tokensPerSec !== undefined) stdout.write(`  decode   : ${result.tokensPerSec} tokens/s\n`);
+  if (result.promptEvalRate !== undefined)
+    stdout.write(`  prefill  : ${result.promptEvalRate} tokens/s\n`);
+  if (result.loadMs !== undefined) stdout.write(`  load     : ${result.loadMs} ms\n`);
   if (result.totalMs !== undefined) stdout.write(`  latency  : ${result.totalMs} ms\n`);
+  if (result.sampleCount !== undefined) stdout.write(`  samples  : ${result.sampleCount}\n`);
+  if (result.spread !== undefined)
+    stdout.write(`  spread   : ±${(result.spread * 100).toFixed(1)}% (noise floor)\n`);
   stdout.write(`  free mem : ${result.memFreeMiB} MiB\n`);
   stdout.write(`  note     : ${result.note}\n`);
 
@@ -370,13 +401,115 @@ export async function runBenchmarkCmd(saveAsBaseline: boolean): Promise<void> {
   if (baseline) {
     const cmp = compare(baseline, result);
     stdout.write("\nComparison vs baseline:\n");
+    if (cmp.tokensPerSecDelta !== undefined) {
+      stdout.write(`  decode  : ${(cmp.tokensPerSecDelta * 100).toFixed(1)}% (positive = faster)\n`);
+    }
     if (cmp.latencyDelta !== undefined) {
       stdout.write(`  latency : ${(cmp.latencyDelta * 100).toFixed(1)}% (negative = faster)\n`);
     }
+    stdout.write(`  noise   : ±${(cmp.noiseFloor * 100).toFixed(1)}%\n`);
+    stdout.write(
+      `  verdict : ${
+        cmp.significant
+          ? "change exceeds the noise floor (significant)"
+          : "within the noise floor (not significant)"
+      }\n`,
+    );
     stdout.write(`  free mem: ${cmp.memFreeDeltaMiB >= 0 ? "+" : ""}${cmp.memFreeDeltaMiB} MiB\n`);
   } else {
     stdout.write("\n(No baseline saved. Run with --save-baseline before applying changes.)\n");
   }
+}
+
+/** Describe a benchmark result on one line. */
+function describeResult(r: { model?: string; tokensPerSec?: number; totalMs?: number; memFreeMiB: number }): string {
+  const bits: string[] = [];
+  if (r.model) bits.push(r.model);
+  if (r.tokensPerSec !== undefined) bits.push(`${r.tokensPerSec} tok/s`);
+  if (r.totalMs !== undefined) bits.push(`${r.totalMs} ms`);
+  bits.push(`${r.memFreeMiB} MiB free`);
+  return bits.join(", ");
+}
+
+/**
+ * --calibrate --select <ids>
+ * Compares the current measurement to the saved baseline and records a TIER-A
+ * calibration for the selected options.
+ *
+ * Workflow:
+ *   1. --benchmark --save-baseline        (before)
+ *   2. --apply --select <ids> --yes       (+ restart the runtime so env applies)
+ *   3. --calibrate --select <ids>         (after → records the measured delta)
+ */
+export async function runCalibrate(select: string[], samples?: number): Promise<void> {
+  if (select.length === 0) {
+    stdout.write("Usage: --calibrate --select <ids>\n");
+    stdout.write("Run `--benchmark --save-baseline` first, then apply + restart, then calibrate.\n");
+    return;
+  }
+  const baseline = await loadBaseline();
+  if (!baseline) {
+    stdout.write(
+      "No baseline found.\n" +
+        "  1) --benchmark --save-baseline     (before)\n" +
+        "  2) --apply --select <ids> --yes    (then restart the runtime)\n" +
+        "  3) --calibrate --select <ids>      (after)\n",
+    );
+    return;
+  }
+
+  stdout.write("Measuring the current state (tier A)…\n");
+  const current = await runBenchmark(undefined, samples);
+  const cmp = compare(baseline, current);
+
+  stdout.write(`  baseline: ${describeResult(baseline)}\n`);
+  stdout.write(`  current : ${describeResult(current)}\n`);
+
+  const metric = cmp.tokensPerSecDelta !== undefined ? "decode tokens/s" : "total latency";
+  const delta =
+    cmp.tokensPerSecDelta ??
+    (cmp.latencyDelta !== undefined ? -cmp.latencyDelta : undefined);
+
+  if (delta === undefined) {
+    stdout.write(
+      "\nCould not compute a delta (no comparable metric). Ensure Ollama is running with a model.\n",
+    );
+    return;
+  }
+
+  const noisePct = (cmp.noiseFloor * 100).toFixed(1);
+  stdout.write(`  noise floor: ±${noisePct}%\n`);
+
+  if (!cmp.significant) {
+    stdout.write(
+      `\nNo significant change: ${metric} ${(delta * 100).toFixed(1)}% is within the ` +
+        `±${noisePct}% noise floor of this host.\n` +
+        "Nothing recorded — a null result is not evidence of an improvement.\n" +
+        "Re-run the before/after cycle (or use a larger model) to reduce noise.\n",
+    );
+    return;
+  }
+
+  for (const id of select) {
+    await recordCalibration({
+      optionId: id,
+      metric,
+      delta,
+      noiseFloor: cmp.noiseFloor,
+      significant: true,
+      tier: "A",
+      model: current.model,
+      measuredAt: new Date().toISOString(),
+      samples: current.sampleCount ?? 1,
+      method: `before/after measurement on this host (${metric})`,
+    });
+  }
+
+  stdout.write(
+    `\nRecorded tier-A calibration for ${select.length} option(s): ${metric} ${(delta * 100).toFixed(1)}% ` +
+      `(beyond the ±${noisePct}% noise floor).\n`,
+  );
+  stdout.write("Future `--plan` runs will show these as [measured].\n");
 }
 
 /** --generate */
@@ -464,7 +597,11 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   if (args.benchmark) {
-    await runBenchmarkCmd(args.saveBaseline ?? false);
+    await runBenchmarkCmd(args.saveBaseline ?? false, args.samples);
+    return;
+  }
+  if (args.calibrate) {
+    await runCalibrate(args.select ?? [], args.samples);
     return;
   }
   if (args.generate) {

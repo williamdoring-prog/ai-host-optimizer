@@ -2,6 +2,26 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.0.3 — 2026-11-17
+
+**M1b — measured tier-A calibration.** The benchmark is now a real, honest
+measurement rather than a single wall-clock guess:
+
+- `--benchmark` measures **decode tokens/second** (and prefill rate) via the
+  Ollama HTTP API, takes several samples, discards a warm-up load, and reports
+  the **median** plus the run-to-run **spread** (the noise floor).
+- New `--calibrate --select <ids>`: compares a before/after measurement and
+  records a **tier-A** delta for the selected options — **only when the change
+  exceeds the host's combined noise floor**. A null result is reported as a null
+  result and records nothing; a difference inside the noise is never claimed.
+- `--plan` replaces an option's estimate with the measured value and marks it
+  `[measured]` when a significant calibration exists; otherwise the original
+  tier-B/C estimate stands, annotated with the null result.
+- New `--samples <n>` (default 3, max 50) to lower the noise floor when a small
+  effect must be detected.
+- Calibrations are stored in the managed directory (`calibration.json`).
+- MCP: new **`plan`** and **`benchmark`** tools.
+
 ## 1.0.2 — 2026-11-17
 
 - Roles curated for clarity and professionalism. The non-standard

@@ -1,7 +1,8 @@
 /**
  * MCP server (stdio transport).
  *
- * Exposes the read-only M0 surface: `profile` and `checklist`.
+ * Exposes the read-only surface: `profile`, `checklist`, `plan`, `benchmark`
+ * and `validate-registry`.
  * No tool in this file modifies the host.
  */
 
@@ -14,6 +15,9 @@ import { z } from "zod";
 
 import { profileHost } from "../core/profiler.js";
 import { buildChecklist, validateRegistry } from "../core/checklist.js";
+import { buildPlan } from "../core/plan.js";
+import { loadCalibrations } from "../core/calibration.js";
+import { runBenchmark } from "../core/benchmark.js";
 import { OPTIONS } from "../registry/options.js";
 import { ROLE_NAMES, ROLE_DESCRIPTORS } from "../core/roles.js";
 import type { SystemRole } from "../core/types.js";
@@ -125,6 +129,42 @@ export function createServer(): McpServer {
           ? "Registry is consistent."
           : `Registry problems:\n- ${problems.join("\n- ")}`;
       return { content: [{ type: "text", text }] };
+    },
+  );
+
+  server.tool(
+    "plan",
+    "Resolve a conflict-free plan for the given option ids, with a combined improvement estimate. " +
+      "Where a MEASURED (tier A) calibration exists on this host, it replaces the estimate. Read-only — nothing is applied.",
+    {
+      select: z.array(z.string()).min(1).describe("Option ids to include (see the checklist tool)."),
+      role: roleField,
+    },
+    async ({ select, role }) => {
+      const profile = await profileHost(role);
+      const calibrations = await loadCalibrations();
+      const plan = buildPlan(select, profile, OPTIONS, calibrations);
+      return { content: [{ type: "text", text: JSON.stringify(plan, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "benchmark",
+    "Measure this host's local inference rate (tier A evidence): decode tokens/second, prefill rate " +
+      "and the run-to-run noise floor. Loads a model, so it can take a minute or more. Read-only (no host changes).",
+    {
+      model: z.string().optional().describe("Model to measure; defaults to the first local model."),
+      samples: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe("Samples per measurement (default 3). More samples = lower noise floor."),
+    },
+    async ({ model, samples }) => {
+      const result = await runBenchmark(model, samples);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
 
