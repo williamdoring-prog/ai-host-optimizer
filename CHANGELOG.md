@@ -24,6 +24,19 @@ All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 - `SECURITY.md` updated to describe the (now existing) applier and the local-only
   benchmark.
 
+**M2b — distribution.** Preparing for the MCP Registry and the directories.
+
+- `server.json` (official MCP Registry manifest) added, validated with
+  `mcp-publisher validate` against `registry.modelcontextprotocol.io`.
+- `package.json` gains `mcpName` (`io.github.williamdoring-prog/ai-host-optimizer`)
+  — the ownership marker the registry verifies in the published package.
+- `.github/workflows/publish-mcp.yml`: on a `v*` tag, build → test → publish to
+  npm → publish to the MCP Registry via **GitHub OIDC**.
+- `.github/workflows/ci.yml`: build + tests across Linux/Windows/macOS and
+  Node 20/22.
+- `docs/publishing.md` rewritten for the registry + directory layers;
+  `docs/launch.md` added (the benchmark-led launch copy).
+
 ## 1.0.3 — 2026-11-17
 
 **M1b — measured tier-A calibration.** The benchmark is now a real, honest

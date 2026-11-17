@@ -98,6 +98,9 @@ Tools exposed:
 | `benchmark` | Measure local inference rate (decode tokens/s) + the noise floor — tier-A evidence |
 | `validate-registry` | Registry consistency check (development aid) |
 
+Published to the **official MCP Registry** as
+`io.github.williamdoring-prog/ai-host-optimizer` (see `server.json`).
+
 ## Honesty contract
 
 Every estimate carries a confidence tier:
@@ -138,7 +141,7 @@ nothing — a small difference inside the noise is not claimed as a win. Use
 - **M1b** — measured tier-A calibration (median-of-samples benchmark, noise floor, per-option promotion). ✅
 - **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama, llama.cpp, Hugging Face), 8 applyable options, idempotent revert. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
-- **M2b** — distribution to MCP registries. *(planned)*
+- **M2b** — distribution: official MCP Registry manifest + CI publish workflow; directory listings. 🚧 *(prepared)*
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation

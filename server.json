@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.williamdoring-prog/ai-host-optimizer",
+  "title": "AI Host Optimizer",
+  "description": "Profile a host and get an evidence-graded checklist of AI-model optimizations.",
+  "repository": {
+    "url": "https://github.com/williamdoring-prog/ai-host-optimizer",
+    "source": "github"
+  },
+  "version": "1.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "ai-host-optimizer",
+      "version": "1.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--mcp",
+          "description": "Run as an MCP stdio server."
+        }
+      ]
+    }
+  ]
+}
