@@ -44,4 +44,22 @@ test("apply plan is empty when no options contribute env", () => {
   const plan = buildApplyPlan(["provider-prompt-cache"], OPTIONS);
   assert.equal(Object.keys(plan.envVars).length, 0);
   assert.equal(plan.files.length, 0);
+  assert.equal(plan.ops.length, 0);
+});
+
+test("systemd drop-in op writes a drop-in in the managed dir with install notes", () => {
+  const plan = buildApplyPlan(["ollama-systemd-dropin", "flash-attention"], OPTIONS);
+  assert.ok(plan.ops.includes("systemd-dropin"));
+  const dropin = plan.files.find((f) => f.path.endsWith("10-ai-host-optimizer.conf"));
+  assert.ok(dropin, "drop-in file should be in the plan");
+  assert.ok(dropin!.path.startsWith(managedDir()));
+  assert.match(dropin!.content, /EnvironmentFile=-.*ollama\.env/);
+  // The install needs root, so it must be printed, never run.
+  assert.ok(plan.notes.some((n) => /sudo systemctl/.test(n)));
+});
+
+test("vLLM options contribute to the vllm target", () => {
+  const plan = buildApplyPlan(["vllm-attention-backend"], OPTIONS);
+  assert.equal(plan.envByTarget["vllm"]?.["VLLM_ATTENTION_BACKEND"], "FLASHINFER");
+  assert.ok(plan.files.some((f) => f.path.endsWith("vllm.env")));
 });

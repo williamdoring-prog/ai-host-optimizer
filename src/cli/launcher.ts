@@ -327,7 +327,7 @@ export async function runApply(role: SystemRole, select: string[], yes: boolean)
   const ids = plan.steps.map((s) => s.option.id);
   const applyPlanResult = buildApplyPlan(ids, OPTIONS);
 
-  if (Object.keys(applyPlanResult.envVars).length === 0) {
+  if (applyPlanResult.files.length === 0) {
     stdout.write(
       "The selected options have no automated apply operation in this version.\n" +
         "They remain advisory (see --plan). No changes made.\n",
@@ -337,11 +337,13 @@ export async function runApply(role: SystemRole, select: string[], yes: boolean)
 
   stdout.write(`Apply plan (${applyPlanResult.optionIds.length} option(s)):\n`);
   for (const id of applyPlanResult.optionIds) stdout.write(`  + ${id}\n`);
-  stdout.write(`\nEnvironment to be written (by target runtime):\n`);
-  for (const target of Object.keys(applyPlanResult.envByTarget).sort()) {
-    stdout.write(`  [${target}]\n`);
-    for (const [k, v] of Object.entries(applyPlanResult.envByTarget[target]!).sort()) {
-      stdout.write(`    ${k}=${v}\n`);
+  if (Object.keys(applyPlanResult.envByTarget).length > 0) {
+    stdout.write(`\nEnvironment to be written (by target runtime):\n`);
+    for (const target of Object.keys(applyPlanResult.envByTarget).sort()) {
+      stdout.write(`  [${target}]\n`);
+      for (const [k, v] of Object.entries(applyPlanResult.envByTarget[target]!).sort()) {
+        stdout.write(`    ${k}=${v}\n`);
+      }
     }
   }
   stdout.write(`\nManaged directory: ${managedDir()}\n`);
@@ -355,11 +357,17 @@ export async function runApply(role: SystemRole, select: string[], yes: boolean)
     `\n${result.dryRun ? "DRY-RUN — nothing written." : "Applied."} ` +
       `(${result.written.length} file(s)${result.dryRun ? " would be written" : " written"})\n`,
   );
+
+  if (applyPlanResult.notes.length > 0) {
+    stdout.write("\nManual steps (this tool never escalates privilege):\n");
+    for (const n of applyPlanResult.notes) stdout.write(`${n}\n`);
+  }
+
   if (result.dryRun) {
-    stdout.write("Re-run with --yes to apply. Undo any time with --revert.\n");
+    stdout.write("\nRe-run with --yes to apply. Undo any time with --revert.\n");
   } else {
     stdout.write(
-      "Activate (bash/zsh):  source " +
+      "\nActivate (bash/zsh):  source " +
         `${managedDir()}/activate.sh\n` +
         "Revert:  --revert\n",
     );

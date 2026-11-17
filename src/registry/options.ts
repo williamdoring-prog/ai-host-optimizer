@@ -277,6 +277,82 @@ export const OPTIONS: OptimizationOption[] = [
     source: "Hugging Face Hub environment-variable documentation.",
   },
   {
+    id: "ollama-systemd-dropin",
+    name: "Load the managed env into the Ollama service (systemd)",
+    description:
+      "Generate a systemd drop-in so the Ollama service reads the managed environment file — without this, Ollama-only variables (Flash Attention, KV-cache type, keep-alive, parallelism) may not reach the running service. Written into the managed directory; installing it under /etc/systemd/system needs root, so the copy/restart commands are printed for you to run.",
+    category: "runtime",
+    platforms: ["linux"],
+    requiresPrivilege: true,
+    risk: "low",
+    reversibility: "fully-reversible",
+    resourceCost: {},
+    expectedImprovement: {
+      metric: "configuration delivery",
+      tier: "C",
+      method:
+        "systemd drop-in semantics; makes the selected Ollama environment take effect for the service (no speed claim).",
+    },
+    conflictsWith: [],
+    synergizesWith: [
+      "flash-attention",
+      "kv-cache-quant-q8",
+      "keep-alive-preload",
+      "ollama-num-parallel",
+    ],
+    requires: [],
+    applyOp: "systemd-dropin",
+    source: "systemd.service(5) drop-in documentation.",
+  },
+  {
+    id: "vllm-attention-backend",
+    name: "Select the vLLM attention backend",
+    description:
+      "Pin vLLM's attention backend (VLLM_ATTENTION_BACKEND=FLASHINFER). FlashInfer is often fastest on modern GPUs, but the best choice is hardware- and version-dependent — verify by benchmarking rather than trusting the default.",
+    category: "runtime",
+    platforms: ["linux"],
+    requiresPrivilege: false,
+    risk: "medium",
+    reversibility: "fully-reversible",
+    resourceCost: { gpuMiB: 0 },
+    expectedImprovement: {
+      metric: "prefill/decode throughput",
+      tier: "C",
+      method:
+        "vLLM documentation (VLLM_ATTENTION_BACKEND); backend choice is GPU- and version-dependent.",
+    },
+    conflictsWith: [],
+    synergizesWith: ["vllm-long-context"],
+    requires: [],
+    applyOp: "env",
+    env: { vllm: { VLLM_ATTENTION_BACKEND: "FLASHINFER" } },
+    source: "vLLM environment-variable documentation.",
+  },
+  {
+    id: "vllm-long-context",
+    name: "Allow long contexts in vLLM",
+    description:
+      "Raise vLLM's context limit beyond the model's trained maximum (VLLM_ALLOW_LONG_MAX_MODEL_LEN=1). Useful for long-document work; quality past the trained window is not guaranteed.",
+    category: "runtime",
+    platforms: ["linux"],
+    requiresPrivilege: false,
+    risk: "medium",
+    reversibility: "fully-reversible",
+    resourceCost: { gpuMiB: 0 },
+    expectedImprovement: {
+      metric: "maximum context length",
+      tier: "C",
+      method:
+        "vLLM documentation (VLLM_ALLOW_LONG_MAX_MODEL_LEN); output quality beyond the trained window is unverified.",
+    },
+    conflictsWith: [],
+    synergizesWith: ["vllm-attention-backend"],
+    requires: [],
+    applyOp: "env",
+    env: { vllm: { VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1" } },
+    source: "vLLM environment-variable documentation.",
+  },
+  {
     id: "numa-binding",
     name: "NUMA-aware binding",
     description:

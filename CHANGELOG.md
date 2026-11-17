@@ -2,6 +2,24 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.2.0 — 2026-11-17
+
+**M1d — more apply ops.** The applier gains a second operation type and two more
+runtimes.
+
+- New op **`systemd-dropin`**: the `ollama-systemd-dropin` option (Linux) writes a
+  systemd drop-in into the managed directory so the Ollama service actually reads
+  the managed `ollama.env`. Installing it needs root, so the `sudo cp` /
+  `systemctl restart` commands are **printed**, never run — the applier still
+  escalates no privilege.
+- New target runtime **`vllm`**, with `vllm-attention-backend` and
+  `vllm-long-context`.
+- The apply plan now carries multiple ops (`ops[]`), writes nested files (the
+  drop-in lives under `systemd/ollama.service.d/`), and reports **manual steps**
+  in its output.
+- Registry now **32 options**, **11 applyable**, **2 op types**, **4 runtimes**
+  (`ollama`, `llama.cpp`, `huggingface`, `vllm`).
+
 ## 1.1.1 — 2026-11-17
 
 - Add `mcpName` to `package.json`. The MCP Registry verifies this ownership

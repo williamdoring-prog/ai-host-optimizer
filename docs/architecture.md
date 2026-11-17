@@ -83,6 +83,8 @@ changes applicability:
 - **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama,
   llama.cpp, Hugging Face), with `${MANAGED_DIR}` substitution and idempotent
   revert. ✅
+- **M1d** — more apply ops: a `systemd-dropin` op (Ollama service env on Linux;
+  install commands printed, never run) and the `vllm` runtime. ✅
 - **M2** — ASM package; distribution to MCP registries.
 - **M2b** — generated Ansible/Dockerfile accessory files. ✅ *(generation)*
 - **M4** — browser UI and Tauri desktop UI.

@@ -66,12 +66,13 @@ ai-host-optimizer --desktop     # desktop UI (not yet)
 Applying writes only into the **managed directory** and prints the `source` line to
 activate it. Undo any time with `--revert`.
 
-**What is automated:** options with an `applyOp` (currently the Ollama runtime
-environment, the llama.cpp server environment, and the Hugging Face cache). The
-applier writes one `<runtime>.env` file per target — `ollama.env`,
-`llama.cpp.env`, `huggingface.env` — plus a single `activate.sh` / `activate.ps1`.
-Everything else is **advisory**: `--apply` says so plainly rather than doing
-nothing silently.
+**What is automated:** options with an `applyOp`. The applier writes one
+`<runtime>.env` file per target — `ollama.env`, `llama.cpp.env`,
+`huggingface.env`, `vllm.env` — plus a single `activate.sh` / `activate.ps1`. On
+Linux, the `ollama-systemd-dropin` option additionally writes a systemd drop-in
+(so the Ollama service actually reads that environment) and **prints** the root
+install commands rather than running them. Everything else is **advisory**:
+`--apply` says so plainly rather than doing nothing silently.
 
 ## Use as an MCP server
 
@@ -166,7 +167,11 @@ claims a win.
 - **M0** — read-only profiler, registry, checklist, CLI + MCP. ✅
 - **M1** — reversible applier (user-space), plan/apply/revert, on-host benchmark. ✅
 - **M1b** — measured tier-A calibration (median-of-samples benchmark, noise floor, per-option promotion). ✅
-- **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama, llama.cpp, Hugging Face), 8 applyable options, idempotent revert. ✅
+- **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama,
+  llama.cpp, Hugging Face), 8 applyable options, idempotent revert. ✅
+- **M1d** — more apply ops: a `systemd-dropin` op (Ollama service env on Linux,
+  install commands printed not run) and the `vllm` runtime. 32 options, 11
+  applyable. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
 - **M2b** — distribution: official MCP Registry entry **live**
   (`io.github.williamdoring-prog/ai-host-optimizer@1.1.1`) + CI publish workflow;

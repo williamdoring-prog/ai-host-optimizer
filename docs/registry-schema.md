@@ -49,11 +49,17 @@ Only options with an `applyOp` are automated; everything else is **advisory**
 | `applyOp` | Effect | Reversible |
 |---|---|---|
 | `env` | Write `<target>.env` per target runtime into the managed directory, plus `activate.sh` / `activate.ps1` | ✅ `--revert` |
+| `systemd-dropin` | Write a systemd drop-in (for the Ollama service) into the managed directory and **print** the root install commands — the applier never escalates privilege | ✅ `--revert` |
 
-Target runtimes currently used: `ollama`, `llama.cpp`, `huggingface`. The applier
-substitutes `${MANAGED_DIR}` in a value with the managed config directory, so an
-option can point a cache at a known-safe location. A target with no contributing
-options is not written at all.
+Target runtimes currently used: `ollama`, `llama.cpp`, `huggingface`, `vllm`. The
+applier substitutes `${MANAGED_DIR}` in a value with the managed config directory,
+so an option can point a cache at a known-safe location. A target with no
+contributing options is not written at all.
+
+A `systemd-dropin` option contributes no env of its own; it makes the *other*
+options take effect for the Ollama service by loading the managed `ollama.env`
+via `EnvironmentFile=`. Installing it needs root, so the `sudo cp` /
+`systemctl restart` commands are printed for the user to run.
 
 ## Confidence tiers (the honesty contract)
 
