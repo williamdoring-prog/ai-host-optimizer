@@ -141,7 +141,9 @@ nothing — a small difference inside the noise is not claimed as a win. Use
 - **M1b** — measured tier-A calibration (median-of-samples benchmark, noise floor, per-option promotion). ✅
 - **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama, llama.cpp, Hugging Face), 8 applyable options, idempotent revert. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
-- **M2b** — distribution: official MCP Registry manifest + CI publish workflow; directory listings. 🚧 *(prepared)*
+- **M2b** — distribution: official MCP Registry entry **live**
+  (`io.github.williamdoring-prog/ai-host-optimizer@1.1.1`) + CI publish workflow;
+  directory listings next. 🚧
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation

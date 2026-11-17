@@ -7,6 +7,9 @@ All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 - Add `mcpName` to `package.json`. The MCP Registry verifies this ownership
   marker **inside the published package**, and 1.1.0 shipped without it, so
   1.1.1 is the first release eligible for the official MCP Registry.
+- **Published to the official MCP Registry** as
+  `io.github.williamdoring-prog/ai-host-optimizer@1.1.1` (verified via the
+  registry API).
 
 ## 1.1.0 — 2026-11-17
 

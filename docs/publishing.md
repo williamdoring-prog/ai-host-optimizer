@@ -89,18 +89,61 @@ github-oidc`) — no registry secret is needed, only `NPM_TOKEN`.
 
 ## 5. Directories (the other layers)
 
-After the registry, list the server in the community directories. Each has its
-own submission flow; the important thing is to **publish to all of them**:
+The official registry is live. Now list the server in the community directories.
+Each has its own submission flow; the point is to be in **all** of them.
 
-| Layer | Where |
-|---|---|
-| Official registry | registry.modelcontextprotocol.io (above) |
-| GitHub MCP Registry | via the registry's GitHub-sourced listings |
-| Directories | mcp.so, Glama, PulseMCP |
-| Client marketplaces | wherever the client supports discovery |
+| Layer | Where | Submission |
+|---|---|---|
+| Official registry | registry.modelcontextprotocol.io | ✅ done (`@1.1.1`) |
+| GitHub MCP Registry | GitHub's registry listings | follows the official entry |
+| mcp.so | mcp.so | submit a server (GitHub URL) |
+| Glama | glama.ai/mcp/servers | add via GitHub |
+| PulseMCP | pulsemcp.com | submit a server |
 
-The launch hook is the **benchmark**: "measure your host, then see which changes
-actually move tokens/second on *your* machine." See `docs/launch.md`.
+### Ready-to-paste copy
+
+**Short description** (≤ 100 chars, for registries with a hard limit):
+
+> Profile a host and get an evidence-graded checklist of AI-model optimizations.
+
+**One-liner** (directories):
+
+> An MCP server + CLI that profiles your machine, gives an honest, tier-graded
+> checklist of AI-model optimizations, and **measures** whether they actually
+> helped — with a noise floor, so a null result is reported as a null result.
+
+**Long description**:
+
+> Most "speed up your local LLM" guides list the same tweaks (Flash Attention,
+> KV-cache quant, keep-alive, NUMA) but never say which help on *your* machine.
+> AI Host Optimizer profiles the host, presents the checklist with an estimated
+> improvement and resource footprint per option, resolves a conflict-free plan,
+> and — with consent — applies the selected options by writing only into a
+> managed config directory (dry-run by default, reversible, no shell, no
+> privilege).
+>
+> Every estimate carries a confidence tier: **A** measured on your host, **B**
+> labelled estimate with a cited method, **C** qualitative. Nothing is presented
+> as measured unless it was. `--benchmark` measures decode tokens/second and the
+> run-to-run noise floor; `--calibrate` only promotes an option to tier A when
+> the change exceeds that floor.
+>
+> Works on Linux/Windows/macOS, x64 and ARM64, consumer GPUs through DGX and
+> datacentre, and is role-aware (a container cannot tune the host kernel; a
+> cluster node is advisory-only). Also generates Ansible/Dockerfile/checklist
+> from the same registry.
+
+**Categories/tags:** `mcp` `model-context-protocol` `ai` `llm` `optimization`
+`performance` `ollama` `llama.cpp` `vllm` `gpu` `kv-cache` `cli` `sysadmin`
+
+**Install:**
+
+```
+npx -y ai-host-optimizer --cli
+```
+
+**Launch hook:** the benchmark — "measure your host, then see which changes
+actually move tokens/second." See `docs/launch.md`.
 
 ## 6. GitHub repo page
 
