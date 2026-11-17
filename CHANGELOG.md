@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.1.1 — 2026-11-17
+
+- Add `mcpName` to `package.json`. The MCP Registry verifies this ownership
+  marker **inside the published package**, and 1.1.0 shipped without it, so
+  1.1.1 is the first release eligible for the official MCP Registry.
+
 ## 1.1.0 — 2026-11-17
 
 **M1c — multi-runtime applier.** The applier is no longer Ollama-only.
