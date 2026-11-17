@@ -1,0 +1,49 @@
+name: Wrong or unsupported claim
+description: Report an option whose estimate, method, or confidence tier is wrong.
+title: "[claim] "
+labels: ["claim"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks — a wrong claim is the most useful report this project can get.
+        Please quote the claim as the tool prints it (metric / estimate / tier / method).
+  - type: input
+    id: option
+    attributes:
+      label: Option id
+      description: The id from `--cli` output, e.g. `kv-cache-quant-q8`.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - Wrong estimate (the number)
+        - Over-claimed confidence (tier too high)
+        - Missing or wrong method / citation
+        - Not applicable on some hardware or role
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong
+      description: Quote the claim and explain the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        A citation, a measurement, or a reproduction. Measurements are best —
+        `--benchmark --save-baseline --samples 5`, then `--calibrate` after the change.
+      placeholder: |
+        Host: <CPU/GPU/RAM>
+        Command: ...
+        Output: ...
+    validations:
+      required: false

@@ -1,0 +1,57 @@
+name: Propose an optimization option
+description: Suggest a new option for the registry.
+title: "[option] "
+labels: ["registry"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The registry is the single source of truth, so a proposal should fit the
+        schema in `docs/registry-schema.md`. Keep the honesty contract: an estimate
+        is tier **B** only with a cited method and a number, otherwise tier **C**.
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: A short, human-readable name.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What it does
+      description: One or two sentences, including any runtime/platform caveats.
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Confidence tier you can support
+      options:
+        - "B — I have a cited method and a number"
+        - "C — qualitative only (direction, no number)"
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Method / citation (required for tier B)
+      description: Where does the number come from? Docs, a paper, or your own measurement.
+    validations:
+      required: false
+  - type: textarea
+    id: relations
+    attributes:
+      label: Platforms, prerequisites, conflicts, groups
+      description: |
+        e.g. `platforms: [linux]`, `requiresVendor: nvidia`, `requires: [flash-attention]`,
+        `conflictsWith: [zram]`, `exclusiveGroup: kv-cache-quant`, `inclusiveGroup: throughput-stack`.
+    validations:
+      required: false
+  - type: input
+    id: apply
+    attributes:
+      label: Could it be automated?
+      description: If it maps to an env var (target runtime) or a systemd drop-in, say so.
+    validations:
+      required: false
