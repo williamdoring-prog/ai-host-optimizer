@@ -8,6 +8,8 @@ All notable changes to this project. Format: `YYYY-MM-DD — summary`.
   `remote-singleton` role is replaced by **`server`** (a headless host with no
   local console). Final set: `workstation`, `laptop`, `server`, `vm-host`,
   `container`, `sandbox`, `cluster-node`, `ci-runner`.
+- Each role now carries a **descriptor explaining what makes it unique**, shown
+  in the interactive prompt, in `--help`, and in the MCP tool schema.
 
 ## 1.0.1 — 2026-11-17
 

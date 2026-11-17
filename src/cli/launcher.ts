@@ -25,7 +25,7 @@ import { profileHost } from "../core/profiler.js";
 import { buildChecklist, validateRegistry } from "../core/checklist.js";
 import { OPTIONS } from "../registry/options.js";
 import { runMcpServer, VERSION } from "../mcp/server.js";
-import { ROLES } from "../core/roles.js";
+import { ROLES, ROLE_DESCRIPTORS } from "../core/roles.js";
 import type { SystemRole } from "../core/types.js";
 import { buildPlan } from "../core/plan.js";
 import { applyPlan, buildApplyPlan, managedDir, revert } from "../core/applier.js";
@@ -151,8 +151,11 @@ Commands:
 
 Options:
   --select <id,id,...>              option ids (see --cli output)
-  --role <role>                     ${ROLES.join(" | ")}
+  --role <role>                     set the system role (see below)
   --help / --version
+
+Roles:
+${ROLES.map((r) => `  ${r.padEnd(13)} - ${ROLE_DESCRIPTORS[r]}`).join("\n")}
 
 Safety: applying writes ONLY into the managed directory
   ${managedDir()}
@@ -164,7 +167,9 @@ export async function promptRole(): Promise<SystemRole | undefined> {
   const rl = createInterface({ input: stdin, output: stdout });
   try {
     stdout.write("What is this system's role?\n");
-    ROLES.forEach((r, i) => stdout.write(`  ${i + 1}) ${r}\n`));
+    ROLES.forEach((r, i) =>
+      stdout.write(`  ${i + 1}) ${r.padEnd(13)} - ${ROLE_DESCRIPTORS[r]}\n`),
+    );
     const answer = (await rl.question("> ")).trim();
     const idx = Number(answer) - 1;
     if (Number.isInteger(idx) && idx >= 0 && idx < ROLES.length) return ROLES[idx];

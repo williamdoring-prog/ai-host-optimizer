@@ -15,7 +15,7 @@ import { z } from "zod";
 import { profileHost } from "../core/profiler.js";
 import { buildChecklist, validateRegistry } from "../core/checklist.js";
 import { OPTIONS } from "../registry/options.js";
-import { ROLE_NAMES } from "../core/roles.js";
+import { ROLE_NAMES, ROLE_DESCRIPTORS } from "../core/roles.js";
 import type { SystemRole } from "../core/types.js";
 
 /** Read the version from package.json (kept in sync automatically). */
@@ -37,7 +37,9 @@ const roleField = z
   .enum(ROLE_NAMES)
   .optional()
   .describe(
-    "System role; affects applicability (e.g. a container cannot tune the host kernel; a cluster node is advisory-only).",
+    "System role; changes which advice applies. One of: " +
+      ROLE_NAMES.map((r) => `${r} (${ROLE_DESCRIPTORS[r]})`).join("; ") +
+      ".",
   );
 
 /** Render the checklist as a human-readable text block. */

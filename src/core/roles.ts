@@ -22,3 +22,18 @@ export const ROLE_NAMES = [
 
 /** The same roles as a mutable array. */
 export const ROLES: SystemRole[] = [...ROLE_NAMES];
+
+/**
+ * A one-line descriptor for each role, explaining what makes it unique
+ * (i.e. why the role changes the advice). Shown in the prompt and `--help`.
+ */
+export const ROLE_DESCRIPTORS: Record<SystemRole, string> = {
+  workstation: "single-user local machine (default)",
+  laptop: "single-user, power/thermal constrained",
+  server: "headless, no local console",
+  "vm-host": "hypervisor - tuning also affects guests",
+  container: "no host-kernel access",
+  sandbox: "disposable - experimentation expected",
+  "cluster-node": "part of a cluster - advisory only",
+  "ci-runner": "ephemeral - advisory only",
+};
