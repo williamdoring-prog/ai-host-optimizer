@@ -1,0 +1,9 @@
+{
+  "_comment": "Example MCP client config (e.g. Claude Desktop). Copy into your client's mcpServers block.",
+  "mcpServers": {
+    "ai-host-optimizer": {
+      "command": "npx",
+      "args": ["-y", "ai-host-optimizer", "--mcp"]
+    }
+  }
+}
