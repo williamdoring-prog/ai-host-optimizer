@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.0.1 — 2026-11-17
+
+- Fix: `--version` (and the MCP server version) now read from `package.json`
+  instead of a hardcoded string.
+- Fix: corrupted `README.md` (a stray UTF-16 tail containing NUL bytes) that
+  blocked publishing.
+
 ## 1.0.0 — 2026-11-17
 
 First release.
