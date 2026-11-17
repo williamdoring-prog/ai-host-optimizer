@@ -20,8 +20,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version: "24" # trusted publishing needs Node >= 22.14 and npm >= 11.5.1
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false # never cache in release builds
 
       - name: Install dependencies
         run: npm ci
@@ -40,10 +41,11 @@ jobs:
           node -e "const fs=require('fs');const p='server.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.argv[1];j.packages[0].version=process.argv[1];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');" "$VERSION"
           echo "server.json version: $VERSION"
 
-      - name: Publish package to npm
+      - name: Publish package to npm (trusted publishing / OIDC)
+        # No NPM_TOKEN: npm exchanges the GitHub OIDC token automatically.
+        # Requires a Trusted Publisher configured on npmjs.com for this repo +
+        # workflow filename (see docs/publishing.md).
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

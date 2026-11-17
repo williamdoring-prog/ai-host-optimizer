@@ -39,16 +39,36 @@ git push && git push --tags
 ### Automated (via CI)
 
 `.github/workflows/publish-mcp.yml` runs on any `v*` tag and publishes **both**
-the npm package and the MCP Registry entry:
+the npm package and the MCP Registry entry — with **no npm token**.
 
-1. Create an npm **Automation** token (bypasses 2FA).
-2. Add it as the repo secret `NPM_TOKEN` (Settings → Secrets and variables → Actions).
+npm [retired legacy/automation tokens](https://docs.npmjs.com/about-access-tokens)
+in November 2025. The supported CI path is **trusted publishing** (OIDC):
+
+1. On npmjs.com → your package → **Settings → Trusted publishing**, add a
+   **GitHub Actions** publisher:
+   - **Organization or user:** `williamdoring-prog`
+   - **Repository:** `ai-host-optimizer`
+   - **Workflow filename:** `publish-mcp.yml` (filename only, with `.yml`)
+   - **Allowed actions:** tick **`npm publish`** (and optionally `npm dist-tag`)
+2. Nothing else — no secret. `publish-mcp.yml` already has `id-token: write`,
+   uses Node 24, and the package's `repository.url` matches the GitHub repo
+   (both required).
 3. Tag and push:
 
 ```bash
 npm version patch
 git push && git push --tags
 ```
+
+> **Time limit:** a new trusted publisher must complete its first successful
+> publish within **2 days**, or it expires and must be recreated.
+
+npm automatically attaches **provenance** (public repo + public package), so no
+`--provenance` flag is needed.
+
+If you prefer tokens anyway, create a **Granular Access Token** (Read and write
+for `ai-host-optimizer`, **Bypass 2FA** enabled) and pass it as
+`NODE_AUTH_TOKEN` — but trusted publishing is safer and is what the workflow uses.
 
 ## 4. Publish to the MCP Registry
 
@@ -81,7 +101,7 @@ curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=ai-host-optim
 ### Automated
 
 `publish-mcp.yml` already does this via **GitHub OIDC** (`mcp-publisher login
-github-oidc`) — no registry secret is needed, only `NPM_TOKEN`.
+github-oidc`) — no registry secret is needed, and no npm token either (see §3).
 
 > **Keep `server.json`'s `version` in step with the release.** The workflow
 > rewrites it from the tag; for a manual publish, update it by hand (and both the
