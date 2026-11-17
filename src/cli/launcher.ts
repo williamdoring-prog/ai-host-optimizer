@@ -337,9 +337,12 @@ export async function runApply(role: SystemRole, select: string[], yes: boolean)
 
   stdout.write(`Apply plan (${applyPlanResult.optionIds.length} option(s)):\n`);
   for (const id of applyPlanResult.optionIds) stdout.write(`  + ${id}\n`);
-  stdout.write(`\nEnvironment to be written:\n`);
-  for (const [k, v] of Object.entries(applyPlanResult.envVars).sort()) {
-    stdout.write(`  ${k}=${v}\n`);
+  stdout.write(`\nEnvironment to be written (by target runtime):\n`);
+  for (const target of Object.keys(applyPlanResult.envByTarget).sort()) {
+    stdout.write(`  [${target}]\n`);
+    for (const [k, v] of Object.entries(applyPlanResult.envByTarget[target]!).sort()) {
+      stdout.write(`    ${k}=${v}\n`);
+    }
   }
   stdout.write(`\nManaged directory: ${managedDir()}\n`);
   stdout.write(`Files:\n`);

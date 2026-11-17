@@ -80,6 +80,9 @@ changes applicability:
 - **M1b** — measured tier-A calibration: a median-of-samples benchmark that records
   the host's run-to-run noise floor, and a `--calibrate` step that promotes an
   option to tier A **only** when its measured effect exceeds that floor. ✅
+- **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama,
+  llama.cpp, Hugging Face), with `${MANAGED_DIR}` substitution and idempotent
+  revert. ✅
 - **M2** — ASM package; distribution to MCP registries.
 - **M2b** — generated Ansible/Dockerfile accessory files. ✅ *(generation)*
 - **M4** — browser UI and Tauri desktop UI.

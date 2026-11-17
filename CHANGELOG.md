@@ -2,6 +2,28 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.1.0 — 2026-11-17
+
+**M1c — multi-runtime applier.** The applier is no longer Ollama-only.
+
+- The option `env` field is now grouped by **target runtime**
+  (`ollama`, `llama.cpp`, `huggingface`), and the applier writes one
+  `<runtime>.env` file per target plus a single `activate.sh` / `activate.ps1`.
+- `flash-attention` and `kv-cache-quant-q8`/`q4` now configure **both** Ollama and
+  the llama.cpp server (`LLAMA_ARG_*`) from one logical option.
+- New applyable options (registry now **29 options**, **8 applyable**):
+  `ollama-num-parallel`, `ollama-max-loaded-models`, `hf-cache-location`,
+  `hf-transfer`.
+- `${MANAGED_DIR}` in an env value is resolved to the managed config directory
+  (used by `hf-cache-location` to relocate the Hugging Face cache safely).
+- `--apply` prints the resolved environment **grouped by target runtime**.
+- `--revert` is now **idempotent** and clears its state file.
+- Ansible generation emits one task per target and resolves `${MANAGED_DIR}` to
+  the playbook's `managed_dir`; the Dockerfile resolves it to
+  `/opt/ai-host-optimizer`.
+- `SECURITY.md` updated to describe the (now existing) applier and the local-only
+  benchmark.
+
 ## 1.0.3 — 2026-11-17
 
 **M1b — measured tier-A calibration.** The benchmark is now a real, honest

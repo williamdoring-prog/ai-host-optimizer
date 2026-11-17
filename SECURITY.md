@@ -12,24 +12,32 @@ Please include: affected version, a description, reproduction steps, and impact.
 
 This project has an unusually narrow attack surface **by design**:
 
-- **M0 is read-only.** The profiler performs no writes, no privilege escalation,
-  and installs nothing. It only reads OS/hardware information and runs read-only
-  commands (`nvidia-smi`, `lspci`, `ibstat`, `system_profiler`, …).
-- **No network access** in M0.
+- **Profiling and planning are read-only.** The profiler performs no writes, no
+  privilege escalation, and installs nothing. It only reads OS/hardware
+  information and runs read-only commands (`nvidia-smi`, `lspci`, `ibstat`,
+  `system_profiler`, …).
+- **The applier writes only inside the managed directory**
+  (`~/.config/ai-host-optimizer`, or the platform equivalent), never to system
+  files, runs **no shell**, and escalates **no** privilege. It is dry-run by
+  default, allow-listed, and fully reversible with `--revert`.
+- **The benchmark talks only to a local runtime** (Ollama at `127.0.0.1:11434` by
+  default) to measure tokens/second. It does not send data anywhere else.
 - **No telemetry.** Nothing leaves the host.
 
 ### In scope
 
 - Any way the profiler could be made to execute unintended commands or write to
   disk.
+- Any way the applier could write **outside** the managed directory, escape the
+  allow-list, or run a shell.
 - Command-injection via environment variables or command arguments.
 - Supply-chain issues in dependencies.
 
 ### Out of scope (for now)
 
-- The future applier (M1) and local HTTP server (M4) — these do not exist yet.
-  When they land, their threat models (consent, dry-run, reversibility, CSRF /
-  DNS-rebinding defence for the loopback server) will be documented here.
+- The browser UI and its loopback HTTP server (M4) — these do not exist yet.
+  When they land, their threat model (CSRF / DNS-rebinding defence for the
+  loopback server) will be documented here.
 
 ## Design commitments for anything that can change the system
 

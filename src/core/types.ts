@@ -129,10 +129,13 @@ export interface OptimizationOption {
   applyOp?: string;
 
   /**
-   * Environment variables this option contributes to the managed runtime
-   * configuration (e.g. Ollama env). Used by the applier.
+   * Environment variables this option contributes to a managed runtime
+   * configuration, grouped by **target runtime** (e.g. `ollama`, `llama.cpp`,
+   * `huggingface`, `vllm`). The applier writes one file per target inside the
+   * managed directory. Values may use `${MANAGED_DIR}`, which the applier
+   * resolves to the managed config directory.
    */
-  env?: Record<string, string>;
+  env?: Record<string, Record<string, string>>;
 
   /** Optional citation for the option's existence/behaviour. */
   source?: string;

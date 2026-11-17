@@ -66,6 +66,13 @@ ai-host-optimizer --desktop     # desktop UI (not yet)
 Applying writes only into the **managed directory** and prints the `source` line to
 activate it. Undo any time with `--revert`.
 
+**What is automated:** options with an `applyOp` (currently the Ollama runtime
+environment, the llama.cpp server environment, and the Hugging Face cache). The
+applier writes one `<runtime>.env` file per target — `ollama.env`,
+`llama.cpp.env`, `huggingface.env` — plus a single `activate.sh` / `activate.ps1`.
+Everything else is **advisory**: `--apply` says so plainly rather than doing
+nothing silently.
+
 ## Use as an MCP server
 
 Add to your MCP client (e.g. Claude Desktop):
@@ -116,7 +123,8 @@ nothing — a small difference inside the noise is not claimed as a win. Use
   (`~/.config/ai-host-optimizer`, or the platform equivalent) — never system
   files — runs **no shell**, and escalates **no** privilege.
 - Applying is **dry-run first**: `--apply` shows the change; `--yes` performs it.
-- Everything applied is **reversible** with `--revert`.
+- Everything applied is **reversible** with `--revert` (and `--revert` is
+  idempotent).
 - Options are tagged with **risk**, **reversibility** and **privilege** needs.
 - Mutually exclusive options (e.g. KV-cache q8_0 vs q4_0; zram vs disk swap) are
   **one-of groups**; stackable options are marked **stackable**.
@@ -128,6 +136,7 @@ nothing — a small difference inside the noise is not claimed as a win. Use
 - **M0** — read-only profiler, registry, checklist, CLI + MCP. ✅
 - **M1** — reversible applier (user-space), plan/apply/revert, on-host benchmark. ✅
 - **M1b** — measured tier-A calibration (median-of-samples benchmark, noise floor, per-option promotion). ✅
+- **M1c** — multi-runtime applier: one `<runtime>.env` per target (Ollama, llama.cpp, Hugging Face), 8 applyable options, idempotent revert. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
 - **M2b** — distribution to MCP registries. *(planned)*
 - **M4** — browser UI and Tauri desktop UI. *(planned)*

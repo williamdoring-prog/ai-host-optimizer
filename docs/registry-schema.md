@@ -32,10 +32,28 @@ interface OptimizationOption {
   conflictsWith: string[];    // ids that must not be applied together
   synergizesWith: string[];   // preferred companions
   requires: string[];         // prerequisites
-  applyOp?: string;           // allow-listed operation id (M1+); absent = advisory only
+  applyOp?: string;           // allow-listed operation id; absent = advisory only
+  env?: Record<string, Record<string, string>>;
+                              // target runtime -> { NAME: value }, e.g.
+                              // { ollama: { OLLAMA_FLASH_ATTENTION: "1" },
+                              //   "llama.cpp": { LLAMA_ARG_FLASH_ATTN: "1" } }
   source?: string;            // citation for the option's existence/behaviour
 }
 ```
+
+## Apply ops (the applier allow-list)
+
+Only options with an `applyOp` are automated; everything else is **advisory**
+(the CLI says so plainly rather than doing nothing silently).
+
+| `applyOp` | Effect | Reversible |
+|---|---|---|
+| `env` | Write `<target>.env` per target runtime into the managed directory, plus `activate.sh` / `activate.ps1` | ✅ `--revert` |
+
+Target runtimes currently used: `ollama`, `llama.cpp`, `huggingface`. The applier
+substitutes `${MANAGED_DIR}` in a value with the managed config directory, so an
+option can point a cache at a known-safe location. A target with no contributing
+options is not written at all.
 
 ## Confidence tiers (the honesty contract)
 
