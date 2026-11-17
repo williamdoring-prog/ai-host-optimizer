@@ -59,7 +59,7 @@ changes applicability:
 | `cluster-node`, `ci-runner` | **advisory-only** — report, never apply |
 | `sandbox` | experimentation expected; changes assumed disposable |
 | `vm-host` | host-level tuning also affects guests |
-| `remote-singleton` | no local console; prefer dry-run + rollback |
+| `server` | headless; no local console, so prefer dry-run + rollback |
 | `workstation`, `laptop` | default |
 
 ## Detection coverage

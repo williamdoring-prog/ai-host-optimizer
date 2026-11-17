@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.0.2 — 2026-11-17
+
+- Roles curated for clarity and professionalism. The non-standard
+  `remote-singleton` role is replaced by **`server`** (a headless host with no
+  local console). Final set: `workstation`, `laptop`, `server`, `vm-host`,
+  `container`, `sandbox`, `cluster-node`, `ci-runner`.
+
 ## 1.0.1 — 2026-11-17
 
 - Fix: `--version` (and the MCP server version) now read from `package.json`

@@ -16,11 +16,11 @@ export type Platform = "linux" | "macos" | "windows";
 export type SystemRole =
   | "workstation"
   | "laptop"
-  | "sandbox"
+  | "server"
   | "vm-host"
-  | "remote-singleton"
-  | "cluster-node"
   | "container"
+  | "sandbox"
+  | "cluster-node"
   | "ci-runner";
 
 /** Risk level of an option. */

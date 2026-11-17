@@ -1,6 +1,9 @@
 /**
  * The set of system roles the user can declare (D-036).
  * Kept in one place so the CLI and the MCP server agree.
+ *
+ * Curation rule: every role must be **unique** (it changes what advice is
+ * appropriate) and **professional** (a term an engineer would recognise).
  */
 
 import type { SystemRole } from "./types.js";
@@ -9,11 +12,11 @@ import type { SystemRole } from "./types.js";
 export const ROLE_NAMES = [
   "workstation",
   "laptop",
-  "sandbox",
+  "server",
   "vm-host",
-  "remote-singleton",
-  "cluster-node",
   "container",
+  "sandbox",
+  "cluster-node",
   "ci-runner",
 ] as const;
 

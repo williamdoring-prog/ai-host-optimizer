@@ -91,8 +91,8 @@ function roleNoteFor(role: SystemRole | undefined): string | undefined {
       return "sandbox host — experimentation expected; changes are assumed disposable";
     case "vm-host":
       return "VM host — host-level tuning also affects guests";
-    case "remote-singleton":
-      return "remote singleton — no local console; use dry-run and rollback";
+    case "server":
+      return "server — headless, no local console; use dry-run and rollback";
     case "cluster-node":
       return "cluster node — advisory only; changes go through the scheduler/change control";
     case "ci-runner":
