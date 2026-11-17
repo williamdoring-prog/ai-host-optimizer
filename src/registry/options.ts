@@ -56,6 +56,8 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["kv-cache-quant-q8"],
     requires: [],
+    applyOp: "ollama-env",
+    env: { OLLAMA_FLASH_ATTENTION: "1" },
     source: "research/mcp/ai-optimization-packages.md",
   },
   {
@@ -81,6 +83,8 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["flash-attention", "prefix-caching"],
     requires: ["flash-attention"],
+    applyOp: "ollama-env",
+    env: { OLLAMA_KV_CACHE_TYPE: "q8_0" },
     source: "research/mcp/ai-caching-memory-packages.md",
   },
   {
@@ -106,6 +110,8 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["flash-attention"],
     requires: ["flash-attention"],
+    applyOp: "ollama-env",
+    env: { OLLAMA_KV_CACHE_TYPE: "q4_0" },
     source: "research/mcp/ai-caching-memory-packages.md",
   },
   {
@@ -152,6 +158,8 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["prefix-caching"],
     requires: [],
+    applyOp: "ollama-env",
+    env: { OLLAMA_KEEP_ALIVE: "30m" },
     source: "research/mcp/ai-optimization-best-practices.md",
   },
   {

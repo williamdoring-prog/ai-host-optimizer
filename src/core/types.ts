@@ -128,6 +128,12 @@ export interface OptimizationOption {
   /** Allow-listed operation id that would implement this (M1+). Absent = advisory only. */
   applyOp?: string;
 
+  /**
+   * Environment variables this option contributes to the managed runtime
+   * configuration (e.g. Ollama env). Used by the applier.
+   */
+  env?: Record<string, string>;
+
   /** Optional citation for the option's existence/behaviour. */
   source?: string;
 }

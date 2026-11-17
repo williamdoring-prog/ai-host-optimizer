@@ -2,16 +2,42 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## 1.0.0 — 2026-11-17
+
+First release.
+
+**Profile (read-only)**
+- Host profiler: OS/distro, CPU, memory (**unified or discrete**), GPU, NVIDIA
+  driver/CUDA, **DGX OS**, **cluster/fabric** (ConnectX/InfiniBand, NVLink, MIG),
+  schedulers (Slurm/Kubernetes/Run:ai), and detected local-AI tooling.
+- **Role-aware** (workstation, laptop, sandbox, vm-host, remote-singleton,
+  cluster-node, container, ci-runner).
+- **Vendor-gated** advice (NVIDIA / AMD / Apple / Intel / Qualcomm).
+- **25 optimization options** with the full group model (exclusive / inclusive /
+  conflicts / synergies / requires) and **tier A/B/C** honesty-labelled estimates.
+
+**Plan & apply**
+- `--plan --select <ids>` — resolve a conflict-free plan, pulling in prerequisites
+  and reporting a **combined estimate** (`1 − Π(1 − eᵢ)`, weakest tier).
+- `--apply [--yes]` — apply the plan. **Dry-run by default**; writes only into the
+  managed config directory; fully reversible.
+- `--revert` — undo the last apply.
+- `--benchmark [--save-baseline]` — a real (tier A) on-host measurement and a
+  before/after comparison.
+
+**Generate**
+- `--generate ansible|dockerfile|checklist` — declarative accessory files
+  generated from the same registry (check-mode friendly; the Dockerfile documents
+  that a container cannot tune the host kernel).
+
+**Interfaces**
+- CLI, terminal, and **MCP server** (`profile`, `checklist`, `validate-registry`).
+
+**Safety**
+- Read-only by default; the applier never touches system files, never runs a
+  shell, and never escalates privilege.
+
 ## 0.0.1 — 2026-11-17 — M0 (read-only)
 
-- Initial scaffold.
-- **Read-only** host profiler (OS, CPU, memory, GPU, detected local-AI tooling).
-- Option registry with the full schema: `resourceCost`, `exclusiveGroup`,
-  `inclusiveGroup`/`stackable`, `combine`, `conflictsWith`, `synergizesWith`,
-  `requires`, `expectedImprovement` (tier A/B/C).
-- Checklist builder + registry validation.
-- CLI launcher with direct single-interface flags (`--cli`, `--mcp`, plus
-  `--browser`/`--desktop` placeholders) and an interactive prompt.
-- MCP stdio server exposing `profile`, `checklist`, `validate-registry`.
-- **No applier**: nothing modifies the host. Applying changes (with consent,
-  dry-run, rollback) arrives in M1.
+- Initial scaffold: read-only profiler, option registry, checklist, CLI + MCP.
+
