@@ -7,13 +7,13 @@
     "url": "https://github.com/williamdoring-prog/ai-host-optimizer",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "1.6.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "ai-host-optimizer",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

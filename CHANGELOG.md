@@ -2,11 +2,11 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — capability vs configuration
+## 1.6.0 — 2026-11-20
 
-Reports now compare **what could apply** against **what is already implemented**,
-instead of only listing capabilities, and the tool no longer recommends or
-benchmarks a no-op.
+Capability vs configuration: reports compare **what could apply** against **what
+is already implemented**, lead with a clear summary, and never recommend or
+benchmark a no-op.
 
 - **The report leads with a summary.** Every report opens with a clear, honest
   header — version, host, role, and the capability-vs-configuration status
