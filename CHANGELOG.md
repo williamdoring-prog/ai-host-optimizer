@@ -2,6 +2,23 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — multi-runtime benchmarking
+
+Tier-A evidence is no longer Ollama-only, so options on other runtimes can be
+measured too.
+
+- **llama.cpp server** support: measures via `/completion` `timings` (decode,
+  prefill, TTFT, inter-token latency).
+- **vLLM** support: scrapes Prometheus `/metrics` around a `/v1/completions`
+  request and derives decode/prefill/TTFT/prefix-hit from the deltas.
+- **Auto-detection** across Ollama (`:11434`), llama.cpp (`:8080`) and vLLM
+  (`:8000`), overridable with `OLLAMA_HOST` / `AIHO_LLAMACPP_URL` /
+  `AIHO_VLLM_URL`, or forced with `AIHO_RUNTIME`. Loopback-only, still no
+  implicit model pulls.
+- The result and the CLI/`--doctor` output now report which runtime was used.
+- New pure parsers (`parsePrometheus`, `parseLlamaCppTimings`, `parseVllmDelta`,
+  `parseOllamaGenerate`) are unit-tested without a live server.
+
 ## 1.4.0 — 2026-11-20
 
 P2 depth: deeper apply coverage without inflating the option list.

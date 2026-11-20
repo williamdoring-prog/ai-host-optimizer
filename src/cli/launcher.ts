@@ -36,6 +36,7 @@ import { ROLES, ROLE_DESCRIPTORS } from "../core/roles.js";
 import type { SystemRole } from "../core/types.js";
 import { managedDir } from "../core/paths.js";
 import { compare, loadBaseline, type BenchmarkProfileId } from "../core/benchmark.js";
+import { detectRuntime } from "../core/runtimes.js";
 import { loadCalibrations } from "../core/calibration.js";
 import { renderChecklist, applyabilityLabel } from "../render/checklist.js";
 import { renderPlan } from "../render/plan.js";
@@ -401,6 +402,7 @@ export async function runBenchmarkCmd(engine: Engine, args: CliArgs): Promise<vo
   }
   stdout.write(`  time     : ${result.timestamp}\n`);
   stdout.write(`  profile  : ${result.profile}\n`);
+  if (result.runtime) stdout.write(`  runtime  : ${result.runtime}\n`);
   if (result.model) stdout.write(`  model    : ${result.model}${result.modelDigest ? ` (${result.modelDigest.slice(0, 12)})` : ""}\n`);
   if (result.tokensPerSec !== undefined) stdout.write(`  decode   : ${result.tokensPerSec} tokens/s (median)\n`);
   if (result.promptEvalRate !== undefined) stdout.write(`  prefill  : ${result.promptEvalRate} tokens/s\n`);
@@ -502,14 +504,15 @@ export async function runDoctor(engine: Engine, role: SystemRole, json = false):
     checks.push({ name: "managed-dir", ok: false, detail: `${dir}: ${(err as Error).message}` });
   }
 
-  // Runtime reachability (loopback only).
-  const host = process.env["OLLAMA_HOST"] ?? "http://127.0.0.1:11434";
-  try {
-    const res = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(2000) });
-    checks.push({ name: "runtime", ok: res.ok, detail: `${host} responded ${res.status}` });
-  } catch (err) {
-    checks.push({ name: "runtime", ok: false, detail: `${host} unreachable (${(err as Error).name})` });
-  }
+  // Runtime detection across the supported servers (loopback only).
+  const runtime = await detectRuntime();
+  checks.push({
+    name: "runtime",
+    ok: runtime !== undefined,
+    detail: runtime
+      ? `${runtime.id} at ${runtime.base}`
+      : "none detected on loopback (Ollama :11434, llama.cpp :8080, vLLM :8000)",
+  });
 
   const baseline = await loadBaseline();
   checks.push({

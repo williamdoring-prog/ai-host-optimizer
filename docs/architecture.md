@@ -100,9 +100,11 @@ changes applicability:
 
 ## Measurement model
 
-Tier-A evidence comes from a local runtime (Ollama HTTP API), loopback-only and
-with **no implicit model pulls**. Workload profiles (`decode`, `prefill`,
-`throughput`, `load`) are measured separately because decode is
+Tier-A evidence comes from a local runtime, loopback-only and with **no implicit
+model pulls**. Three servers are supported and auto-detected: **Ollama**
+(`/api/generate`), **llama.cpp server** (`/completion` `timings`) and **vLLM**
+(Prometheus `/metrics` scraped around a request). Workload profiles (`decode`,
+`prefill`, `throughput`, `load`) are measured separately because decode is
 memory-bandwidth-bound and prefill is compute-bound. Each result records its
 fixed parameters (seed, temperature, `num_ctx`, `num_batch`, `num_predict`) and
 the model digest, and reports **median + IQR/MAD + a bootstrap CI** rather than a

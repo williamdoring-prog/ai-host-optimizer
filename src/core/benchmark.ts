@@ -1,16 +1,17 @@
 /**
- * Benchmark (P1) — an honest, real measurement of local inference.
+ * Benchmark (P1/P2) — an honest, real measurement of local inference.
  *
- * Path: the Ollama HTTP API (`/api/generate`, `stream: false`), which returns
- * `eval_count` / `eval_duration` and therefore a true decode rate (tokens/s)
- * rather than a wall-clock guess. There is NO CLI fallback and NO implicit
- * pull: the model must already be installed, and the runtime must be loopback
- * (or remote access must be explicitly allowed).
+ * Runtimes: **Ollama** (`/api/generate`), **llama.cpp server** (`/completion`
+ * `timings`) and **vLLM** (Prometheus `/metrics` scraped around `/v1/completions`).
+ * The runtime is auto-detected on loopback (or forced with `AIHO_RUNTIME`).
+ * There is NO CLI fallback and NO implicit pull: the model must already be
+ * installed, and the runtime must be loopback (or remote access explicitly
+ * allowed).
  *
- * Headline numbers are MEDIANS of the samples. Every result records the
- * profile, the fixed generation parameters, the raw samples, a robust
- * dispersion (IQR + MAD) and a bootstrap confidence interval, so a later
- * comparison can be judged honestly rather than against an assumed noise floor.
+ * Headline numbers are MEDIANS of the samples. Every result records the profile,
+ * the fixed generation parameters, the raw samples, a robust dispersion (IQR +
+ * MAD) and a bootstrap confidence interval, so a later comparison can be judged
+ * honestly rather than against an assumed noise floor.
  */
 
 import { execFile } from "node:child_process";
@@ -28,6 +29,16 @@ import {
   median,
   round,
 } from "./stats.js";
+import {
+  detectRuntime,
+  listRuntimeModels,
+  requestSample,
+  type RawSample,
+  type RuntimeEndpoint,
+  type RuntimeId,
+} from "./runtimes.js";
+
+export { isLoopbackHost } from "./net.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -121,6 +132,8 @@ export interface BenchmarkResult {
   profile: BenchmarkProfileId;
   /** The fixed generation parameters used. */
   params: BenchmarkParams;
+  /** The runtime that produced the measurement, when one was detected. */
+  runtime?: RuntimeId;
   model?: string;
   /** Content digest of the measured model (from `/api/tags`), when known. */
   modelDigest?: string;
@@ -166,80 +179,6 @@ async function tryRun(file: string, args: string[], timeoutMs: number): Promise<
   }
 }
 
-/**
- * Is `host` a loopback address? Accepts `127.0.0.1`, `localhost`, `::1`,
- * `[::1]`, any `127.x.x.x`, and tolerates a scheme, a path or a `:port`.
- */
-export function isLoopbackHost(host: string): boolean {
-  let h = host.trim().toLowerCase();
-  if (!h) return false;
-  const scheme = h.match(/^[a-z][a-z0-9+.-]*:\/\/(.*)$/);
-  if (scheme) h = scheme[1]!;
-  h = h.split("/")[0]!;
-  if (h.startsWith("[")) {
-    const end = h.indexOf("]");
-    if (end === -1) return false;
-    h = h.slice(1, end);
-  } else {
-    const colons = (h.match(/:/g) ?? []).length;
-    // A single colon means host:port; more than one means a bare IPv6 literal.
-    if (colons === 1) h = h.slice(0, h.indexOf(":"));
-  }
-  if (h === "localhost" || h === "::1") return true;
-  const parts = h.split(".");
-  if (parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p))) {
-    return parts[0] === "127";
-  }
-  return false;
-}
-
-/** Resolve the Ollama base URL + hostname from `OLLAMA_HOST`. */
-function ollamaHost(): { base: string; hostname: string } {
-  const raw = process.env["OLLAMA_HOST"]?.trim() || "http://127.0.0.1:11434";
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
-  try {
-    const url = new URL(withScheme);
-    return { base: url.origin, hostname: url.hostname };
-  } catch {
-    return { base: withScheme.replace(/\/+$/, ""), hostname: raw };
-  }
-}
-
-interface OllamaTag {
-  name?: string;
-  model?: string;
-  digest?: string;
-}
-
-interface OllamaTagsResponse {
-  models?: OllamaTag[];
-}
-
-interface OllamaGenerateResponse {
-  eval_count?: number;
-  eval_duration?: number; // nanoseconds
-  prompt_eval_count?: number;
-  prompt_eval_duration?: number; // nanoseconds
-  prompt_eval_cached_count?: number;
-  load_duration?: number; // nanoseconds
-  total_duration?: number; // nanoseconds
-}
-
-/** One request's parsed measurements. */
-interface RawSample {
-  decodeRate?: number;
-  promptEvalRate?: number;
-  ttftMs?: number;
-  interTokenMs?: number;
-  prefixHitRate?: number;
-  loadMs?: number;
-  totalMs?: number;
-  evalCount: number;
-  evalDurationNs: number;
-  promptCount: number;
-  promptDurationNs: number;
-}
-
 /** One measured sample (a single request, or a batch of concurrent requests). */
 interface Sample {
   decodeRate?: number;
@@ -249,84 +188,6 @@ interface Sample {
   prefixHitRate?: number;
   loadMs?: number;
   totalMs?: number;
-}
-
-/** List installed models via `GET /api/tags`; `undefined` if unreachable. */
-async function listModels(base: string): Promise<OllamaTag[] | undefined> {
-  try {
-    const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return undefined;
-    const data = (await res.json()) as OllamaTagsResponse;
-    return Array.isArray(data.models) ? data.models : [];
-  } catch {
-    return undefined;
-  }
-}
-
-function parseGenerate(data: OllamaGenerateResponse): RawSample {
-  const evalCount = data.eval_count ?? 0;
-  const evalDurationNs = data.eval_duration ?? 0;
-  const promptCount = data.prompt_eval_count ?? 0;
-  const promptDurationNs = data.prompt_eval_duration ?? 0;
-  const cached = data.prompt_eval_cached_count ?? 0;
-  const loadNs = data.load_duration ?? 0;
-
-  const decodeRate =
-    evalCount > 0 && evalDurationNs > 0 ? evalCount / (evalDurationNs / NS_PER_S) : undefined;
-  const promptEvalRate =
-    promptCount > 0 && promptDurationNs > 0
-      ? promptCount / (promptDurationNs / NS_PER_S)
-      : undefined;
-  const ttftMs = loadNs + promptDurationNs > 0 ? (loadNs + promptDurationNs) / NS_PER_MS : undefined;
-  const interTokenMs =
-    evalCount > 0 && evalDurationNs > 0 ? evalDurationNs / evalCount / NS_PER_MS : undefined;
-  const prefixHitRate = cached + promptCount > 0 ? cached / (cached + promptCount) : undefined;
-
-  return {
-    decodeRate,
-    promptEvalRate,
-    ttftMs,
-    interTokenMs,
-    prefixHitRate,
-    loadMs: loadNs > 0 ? loadNs / NS_PER_MS : undefined,
-    totalMs: data.total_duration ? data.total_duration / NS_PER_MS : undefined,
-    evalCount,
-    evalDurationNs,
-    promptCount,
-    promptDurationNs,
-  };
-}
-
-/** One HTTP generation request. */
-async function requestOnce(
-  base: string,
-  model: string,
-  prompt: string,
-  params: BenchmarkParams,
-): Promise<RawSample | undefined> {
-  try {
-    const res = await fetch(`${base}/api/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream: false,
-        options: {
-          seed: params.seed,
-          temperature: params.temperature,
-          num_ctx: params.numCtx,
-          num_batch: params.numBatch,
-          num_predict: params.numPredict,
-        },
-      }),
-      signal: AbortSignal.timeout(180_000),
-    });
-    if (!res.ok) return undefined;
-    return parseGenerate((await res.json()) as OllamaGenerateResponse);
-  } catch {
-    return undefined;
-  }
 }
 
 function medianOf(values: (number | undefined)[]): number | undefined {
@@ -343,13 +204,11 @@ function aggregate(raws: RawSample[]): Sample | undefined {
 
   const totalTokens = valid.reduce((acc, r) => acc + r.evalCount, 0);
   const maxEvalNs = Math.max(...valid.map((r) => r.evalDurationNs));
-  const decodeRate =
-    maxEvalNs > 0 && totalTokens > 0 ? totalTokens / (maxEvalNs / NS_PER_S) : undefined;
+  const decodeRate = maxEvalNs > 0 && totalTokens > 0 ? totalTokens / (maxEvalNs / NS_PER_S) : undefined;
 
   const totalPrompt = valid.reduce((acc, r) => acc + r.promptCount, 0);
   const maxPromptNs = Math.max(...valid.map((r) => r.promptDurationNs));
-  const promptEvalRate =
-    maxPromptNs > 0 && totalPrompt > 0 ? totalPrompt / (maxPromptNs / NS_PER_S) : undefined;
+  const promptEvalRate = maxPromptNs > 0 && totalPrompt > 0 ? totalPrompt / (maxPromptNs / NS_PER_S) : undefined;
 
   const maxOf = (vals: (number | undefined)[]): number | undefined => {
     const nums = vals.filter((v): v is number => v !== undefined);
@@ -369,14 +228,14 @@ function aggregate(raws: RawSample[]): Sample | undefined {
 
 /** Fire one sample: `concurrency` requests in parallel, aggregated. */
 async function measureOnce(
-  base: string,
+  ep: RuntimeEndpoint,
   model: string,
   profile: BenchmarkProfile,
   params: BenchmarkParams,
 ): Promise<Sample | undefined> {
   const concurrency = Math.max(1, profile.concurrency ?? 1);
   const requests = Array.from({ length: concurrency }, () =>
-    requestOnce(base, model, profile.prompt, params),
+    requestSample(ep, model, profile.prompt, params),
   );
   const raws = (await Promise.all(requests)).filter((r): r is RawSample => r !== undefined);
   if (raws.length === 0) return undefined;
@@ -400,6 +259,7 @@ async function sampleVram(): Promise<number | undefined> {
 /** Raw per-metric samples fed into `summarizeBenchmark`. */
 export interface BenchmarkMeasurements {
   timestamp?: string;
+  runtime?: RuntimeId;
   model?: string;
   modelDigest?: string;
   memFreeMiB: number;
@@ -415,13 +275,24 @@ export interface BenchmarkMeasurements {
   vramMiB?: number;
 }
 
-function medianRounded(
-  values: number[] | undefined,
-  places: number,
-): number | undefined {
+function medianRounded(values: number[] | undefined, places: number): number | undefined {
   if (!values) return undefined;
   const m = median(values);
   return m === undefined ? undefined : round(m, places);
+}
+
+/** Human-readable runtime name for notes. */
+function runtimeName(id: RuntimeId | undefined): string {
+  switch (id) {
+    case "llamacpp":
+      return "the llama.cpp server";
+    case "vllm":
+      return "vLLM";
+    case "ollama":
+      return "the Ollama API";
+    default:
+      return "the local runtime";
+  }
 }
 
 /**
@@ -456,6 +327,7 @@ export function summarizeBenchmark(
     timestamp: m.timestamp ?? new Date().toISOString(),
     profile,
     params,
+    runtime: m.runtime,
     model: m.model,
     modelDigest: m.modelDigest,
     tokensPerSec: medianDecode !== undefined ? round(medianDecode, 2) : undefined,
@@ -475,7 +347,7 @@ export function summarizeBenchmark(
     memFreeMiB: m.memFreeMiB,
     note:
       m.note ??
-      `Measured via the Ollama API (profile ${profile}, tier A): ` +
+      `Measured via ${runtimeName(m.runtime)} (profile ${profile}, tier A): ` +
         `median of ${count} sample(s), spread ${spreadPct}.`,
   };
 }
@@ -489,9 +361,9 @@ function relativeSpread(values: number[]): number | undefined {
 }
 
 /**
- * Run a measurement. Resolves the model from the installed list (never pulling),
- * warms up once (except `load`), then takes `samples` measurements. Headline
- * numbers are medians; raw samples, dispersion and a bootstrap CI are recorded.
+ * Run a measurement. Auto-detects the runtime, resolves the model from the
+ * installed list (never pulling), warms up once (except `load`), then takes
+ * `samples` measurements. Headline numbers are medians.
  */
 export async function runBenchmark(
   model?: string,
@@ -503,29 +375,29 @@ export async function runBenchmark(
   const prof = PROFILES[profile];
   const params: BenchmarkParams = { ...DEFAULT_BENCHMARK_PARAMS, numPredict: prof.numPredict };
 
-  const { base, hostname } = ollamaHost();
-  if (!isLoopbackHost(hostname) && process.env["AIHO_ALLOW_REMOTE_RUNTIME"] !== "1") {
+  const ep = await detectRuntime();
+  if (!ep) {
     return {
       timestamp,
       profile,
       params,
       memFreeMiB,
       note:
-        `Refused: OLLAMA_HOST "${hostname}" is not a loopback address, so no benchmark was run. ` +
-        "Set AIHO_ALLOW_REMOTE_RUNTIME=1 to allow measuring a remote runtime.",
+        "No local inference runtime was detected on loopback (Ollama :11434, llama.cpp :8080, " +
+        "vLLM :8000), so nothing could be measured. Set OLLAMA_HOST / AIHO_LLAMACPP_URL / " +
+        "AIHO_VLLM_URL, or AIHO_ALLOW_REMOTE_RUNTIME=1 for a remote runtime.",
     };
   }
 
-  const installed = await listModels(base);
+  const installed = await listRuntimeModels(ep);
   if (installed === undefined) {
     return {
       timestamp,
       profile,
       params,
+      runtime: ep.id,
       memFreeMiB,
-      note:
-        `The Ollama HTTP API at ${base} was unreachable, so nothing could be measured ` +
-        "(no CLI fallback: it could pull a model).",
+      note: `The ${ep.id} API at ${ep.base} was unreachable, so nothing could be measured.`,
     };
   }
   if (installed.length === 0) {
@@ -533,57 +405,56 @@ export async function runBenchmark(
       timestamp,
       profile,
       params,
+      runtime: ep.id,
       memFreeMiB,
-      note: "Ollama is reachable but no models are installed; nothing to measure.",
+      note: `${ep.id} is reachable at ${ep.base} but reports no models; nothing to measure.`,
     };
   }
 
   const wanted = model?.trim();
-  const entry = wanted
-    ? installed.find((t) => t.name === wanted || t.model === wanted)
-    : installed[0];
+  const entry = wanted ? installed.find((m) => m.name === wanted) : installed[0];
   if (!entry) {
     return {
       timestamp,
       profile,
       params,
+      runtime: ep.id,
       memFreeMiB,
       note:
-        `Model "${wanted}" is not installed; refusing to pull it implicitly. ` +
-        `Run \`ollama pull ${wanted}\` yourself, then benchmark again.`,
+        `Model "${wanted}" is not available from ${ep.id}; refusing to pull it implicitly. ` +
+        "Install it yourself, then benchmark again.",
     };
   }
 
-  const modelName = entry.name ?? entry.model ?? wanted ?? "unknown";
+  const modelName = entry.name;
   const modelDigest = entry.digest;
 
   // Warm-up loads the model so the timed samples exclude load time. The `load`
   // profile deliberately skips it: cold load latency is the thing being measured.
   let warmup: Sample | undefined;
   if (profile !== "load") {
-    warmup = await measureOnce(base, modelName, prof, params);
+    warmup = await measureOnce(ep, modelName, prof, params);
   }
 
   const taken: Sample[] = [];
   const n = Math.max(1, samples);
   for (let i = 0; i < n; i++) {
-    const s = await measureOnce(base, modelName, prof, params);
+    const s = await measureOnce(ep, modelName, prof, params);
     if (!s) break;
     taken.push(s);
   }
 
-  const decodeSamples = taken
-    .map((s) => s.decodeRate)
-    .filter((v): v is number => v !== undefined);
+  const decodeSamples = taken.map((s) => s.decodeRate).filter((v): v is number => v !== undefined);
   if (decodeSamples.length === 0) {
     return {
       timestamp,
       profile,
       params,
+      runtime: ep.id,
       model: modelName,
       modelDigest,
       memFreeMiB,
-      note: `Detected model "${modelName}" but no timed run returned token counts.`,
+      note: `Detected "${modelName}" on ${ep.id} but no timed run returned token counts.`,
     };
   }
 
@@ -597,22 +468,17 @@ export async function runBenchmark(
 
   return summarizeBenchmark(profile, params, {
     timestamp,
+    runtime: ep.id,
     model: modelName,
     modelDigest,
     memFreeMiB,
     decodeSamples,
-    promptEvalRateSamples: taken
-      .map((s) => s.promptEvalRate)
-      .filter((v): v is number => v !== undefined),
+    promptEvalRateSamples: taken.map((s) => s.promptEvalRate).filter((v): v is number => v !== undefined),
     ttftSamples: taken.map((s) => s.ttftMs).filter((v): v is number => v !== undefined),
-    interTokenSamples: taken
-      .map((s) => s.interTokenMs)
-      .filter((v): v is number => v !== undefined),
+    interTokenSamples: taken.map((s) => s.interTokenMs).filter((v): v is number => v !== undefined),
     loadSamples,
     totalSamples: taken.map((s) => s.totalMs).filter((v): v is number => v !== undefined),
-    prefixHitRateSamples: taken
-      .map((s) => s.prefixHitRate)
-      .filter((v): v is number => v !== undefined),
+    prefixHitRateSamples: taken.map((s) => s.prefixHitRate).filter((v): v is number => v !== undefined),
     vramMiB,
   });
 }
@@ -683,10 +549,7 @@ function comparableDecode(baseline: BenchmarkResult, current: BenchmarkResult): 
  * when that interval EXCLUDES zero. Otherwise it falls back to the point delta
  * judged against the combined run-to-run noise floor (deliberately conservative).
  */
-export function compare(
-  baseline: BenchmarkResult,
-  current: BenchmarkResult,
-): BenchmarkComparison {
+export function compare(baseline: BenchmarkResult, current: BenchmarkResult): BenchmarkComparison {
   const tokensPerSecDelta =
     baseline.tokensPerSec && current.tokensPerSec
       ? (current.tokensPerSec - baseline.tokensPerSec) / baseline.tokensPerSec
@@ -701,10 +564,7 @@ export function compare(
   const memFreeDeltaMiB = current.memFreeMiB - baseline.memFreeMiB;
 
   if (comparableDecode(baseline, current)) {
-    const diff = bootstrapDiffCI(baseline.samples!, current.samples!, {
-      level: CI_LEVEL,
-      seed: 1,
-    });
+    const diff = bootstrapDiffCI(baseline.samples!, current.samples!, { level: CI_LEVEL, seed: 1 });
     if (diff) {
       const ci = { low: round(diff.low, 3), high: round(diff.high, 3), level: CI_LEVEL };
       const significant = diff.low > 0 || diff.high < 0;
@@ -723,8 +583,7 @@ export function compare(
     }
   }
 
-  const primaryDelta =
-    tokensPerSecDelta ?? (latencyDelta !== undefined ? -latencyDelta : undefined);
+  const primaryDelta = tokensPerSecDelta ?? (latencyDelta !== undefined ? -latencyDelta : undefined);
   const significant = primaryDelta !== undefined && Math.abs(primaryDelta) >= noiseFloor;
   return {
     baseline,

@@ -178,12 +178,13 @@ interval is not claimed as a win. Use `--samples <n>` to tighten the interval.
 
 ## What the benchmark measures
 
-`--benchmark` calls the local runtime's HTTP API (`/api/generate` with
-`stream: false`), which returns exact token counts and durations rather than a
-wall-clock guess. It fixes and **records** the parameters (`seed`,
-`temperature`, `num_ctx`, `num_batch`, `num_predict`) and the model digest, takes
-several samples after a warm-up, and reports the **median** with a bootstrap
-confidence interval.
+`--benchmark` auto-detects a local inference server — **Ollama** (`/api/generate`),
+**llama.cpp server** (`/completion` `timings`) or **vLLM** (Prometheus `/metrics`) —
+and reads exact token counts and durations rather than a wall-clock guess. Point it
+with `OLLAMA_HOST`, `AIHO_LLAMACPP_URL` or `AIHO_VLLM_URL` (or force one with
+`AIHO_RUNTIME`). It fixes and **records** the parameters (`seed`, `temperature`,
+`num_ctx`, `num_batch`, `num_predict`) and the model digest, takes several samples
+after a warm-up, and reports the **median** with a bootstrap confidence interval.
 
 Separate **profiles** measure separate regimes, because decode is
 memory-bandwidth-bound and prefill is compute-bound:
@@ -293,6 +294,9 @@ Each option is one or the other, and the CLI/MCP tell you which:
 - **P2 (tranche 2)** — more numeric levers via `size` (llama.cpp batch/ubatch,
   Ollama queue), `ollama-num-parallel` migrated to the guarded op, and
   `llama-gpu-layers` as advisory. **41 options, 14 applyable.** ✅
+- **P2 (step 3)** — multi-runtime benchmarking: **llama.cpp server**
+  (`/completion` timings) and **vLLM** (Prometheus `/metrics`), auto-detected on
+  loopback, so non-Ollama options can reach tier A. ✅
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation
