@@ -24,6 +24,8 @@ function engineWith(overrides: Partial<EngineDeps> = {}): Engine {
     managedDir: () => "/tmp/aiho-engine-test",
     applyPlan: async (_plan, dryRun) => ({ dryRun: dryRun ?? true, written: [] }),
     readState: async () => undefined,
+    loadHistory: async () => [],
+    appendHistory: async () => "path",
     env: {},
     ...overrides,
   });
@@ -135,3 +137,55 @@ test("generate produces registry-derived output", () => {
   const sizeDockerfile = engine.generate("dockerfile", ["ollama-context-length"]);
   assert.match(sizeDockerfile, /ENV OLLAMA_CONTEXT_LENGTH="8192"/);
 });
+
+test("benchmark appends a history record", async () => {
+  let appended: { key: string } | undefined;
+  const engine = engineWith({
+    runBenchmark: async () =>
+      ({
+        timestamp: new Date().toISOString(),
+        profile: "decode",
+        params: { seed: 42, temperature: 0, numCtx: 4096, numBatch: 512, numPredict: 128 },
+        model: "m",
+        runtime: "ollama",
+        tokensPerSec: 100,
+        samples: [100],
+        memFreeMiB: 1000,
+        note: "t",
+      }) as never,
+    appendHistory: async (r) => {
+      appended = r;
+      return "path";
+    },
+  });
+  await engine.benchmark({ record: true });
+  assert.ok(appended);
+  assert.match(appended!.key, /m/);
+});
+
+test("history returns recorded runs and detects regressions", async () => {
+  const mk = (tokens: number, samples: number[]): HistoryRecordLike => ({
+    key: "k",
+    host: "h",
+    configDigest: "d",
+    recordedAt: new Date().toISOString(),
+    result: {
+      timestamp: new Date().toISOString(),
+      profile: "decode",
+      params: { seed: 42, temperature: 0, numCtx: 4096, numBatch: 512, numPredict: 128 },
+      model: "m",
+      tokensPerSec: tokens,
+      samples,
+      memFreeMiB: 1000,
+      note: "t",
+    } as never,
+  });
+  const engine = engineWith({
+    loadHistory: async () => [mk(200, [198, 200, 202]), mk(80, [78, 80, 82])],
+  });
+  const { records, regressions } = await engine.history();
+  assert.equal(records.length, 2);
+  assert.equal(regressions.length, 1);
+});
+
+type HistoryRecordLike = Parameters<EngineDeps["appendHistory"]>[0];

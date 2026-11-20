@@ -45,6 +45,7 @@ containment are enforced once rather than re-implemented per UI.
 | `src/core/plan.ts` | Conflict-free planning and honest combined estimates. |
 | `src/core/applier.ts` | Reversible, contained, atomic writes into the managed dir. |
 | `src/core/benchmark.ts` | Tier-A measurement with robust dispersion + bootstrap CI. |
+| `src/core/history.ts` | Benchmark history + regression detection (pure detection). |
 | `src/core/stats.ts` | Pure statistics (median, MAD, IQR, bootstrap CIs). |
 | `src/core/calibration.ts` | Per-(option, model, profile) measured deltas. |
 | `src/core/accessories.ts` | Ansible / Dockerfile / Markdown generation (injection-safe). |

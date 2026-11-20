@@ -2,6 +2,19 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — benchmark history and regression detection (AIHO-028)
+
+- Every benchmark run is appended to `<managedDir>/benchmark-history.json`,
+  keyed by **(host, runtime, model, profile, config digest)**, capped at 500
+  records and written `0600`.
+- **`--history`** lists recorded runs (newest first) with their CI and config
+  digest, and reports **regressions** — the newest run of a series is flagged
+  only when the decode rate dropped by more than the interval (bootstrap CI, or
+  the combined noise floor). A drop within run-to-run noise is never called a
+  regression.
+- `--json` emits the records and regressions machine-readably.
+- Detection is a pure function (`detectRegressions`) with unit tests.
+
 ## 1.8.0 — 2026-11-20
 
 Hardening: owner-only managed files, secret redaction, and MCP resources/prompts.

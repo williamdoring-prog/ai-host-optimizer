@@ -233,6 +233,13 @@ Nothing recorded — a null result is not evidence of an improvement.
 A tool that will tell you *"this didn't help"* is more useful than one that always
 claims a win.
 
+### History and regressions
+
+Every `--benchmark` run is recorded (keyed by host, runtime, model, profile and
+config digest). `--history` lists the runs and flags a **regression** when the
+newest run of a series is slower by more than the interval — never a drop within
+run-to-run noise.
+
 ## Safety
 
 - **Read-only by default.** Profiling and planning never change anything.

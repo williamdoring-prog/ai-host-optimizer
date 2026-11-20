@@ -27,6 +27,8 @@ function fakeEngine() {
     loadCalibrations: async () => ({}),
     managedDir: () => "/tmp/aiho-mcp-test",
     readState: async () => undefined,
+    loadHistory: async () => [],
+    appendHistory: async () => "path",
     env: {},
   });
 }

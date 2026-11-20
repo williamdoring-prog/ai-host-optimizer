@@ -63,6 +63,7 @@ export interface CliArgs {
   revert?: boolean;
   benchmark?: boolean;
   calibrate?: boolean;
+  history?: boolean;
   saveBaseline?: boolean;
   samples?: number;
   profile?: string;
@@ -127,6 +128,9 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case "--calibrate":
         args.calibrate = true;
+        break;
+      case "--history":
+        args.history = true;
         break;
       case "--save-baseline":
         args.saveBaseline = true;
@@ -201,6 +205,7 @@ Commands:
   --revert                          undo the last apply
   --benchmark [--save-baseline]     measure the host (tier A)
   --calibrate --select <ids>        record a MEASURED (tier A/A-/N) delta
+  --history                         show recorded benchmarks and regressions
   --doctor                          diagnose Node, managed dir, runtime, baseline
   --generate <kind>                 ansible | dockerfile | checklist
   --samples <n>                     samples per measurement (default 3, max 50)
@@ -616,6 +621,37 @@ export async function runCalibrate(engine: Engine, args: CliArgs): Promise<void>
   }
 }
 
+/** --history */
+export async function runHistory(engine: Engine, json = false): Promise<void> {
+  const { records, regressions } = await engine.history();
+  if (json) {
+    printJson({ records, regressions });
+    return;
+  }
+  if (records.length === 0) {
+    stdout.write("No benchmark history yet. Run --benchmark to record a run.\n");
+    return;
+  }
+  stdout.write(`Benchmark history (${records.length} record(s))\n\n`);
+  for (const r of [...records].reverse().slice(0, 30)) {
+    const res = r.result;
+    const ci = res.ci ? `ci[${res.ci.low}, ${res.ci.high}]` : "ci[n/a]";
+    stdout.write(
+      `  ${r.recordedAt}  ${res.model ?? "?"}  ${res.profile}  ` +
+        `${res.tokensPerSec ?? "?"} tok/s  ${ci}  cfg:${r.configDigest}\n`,
+    );
+  }
+  if (regressions.length) {
+    stdout.write(`\nRegressions (${regressions.length}) — slower beyond the interval:\n`);
+    for (const g of regressions) {
+      const ci = g.comparison.ci ? ` [${g.comparison.ci.low}, ${g.comparison.ci.high}]` : "";
+      stdout.write(`  ${g.key}\n    ${(g.delta! * 100).toFixed(1)}% slower${ci}\n`);
+    }
+  } else {
+    stdout.write("\nNo regressions detected beyond the interval.\n");
+  }
+}
+
 /** --doctor */
 export async function runDoctor(engine: Engine, role: SystemRole, json = false): Promise<void> {
   const dir = managedDir();
@@ -740,7 +776,7 @@ export async function main(argv: string[], engine: Engine = createEngine()): Pro
 
   const hasCommand =
     args.list || args.recommend || args.interactive || args.doctor || args.plan || args.apply ||
-    args.revert || args.benchmark || args.calibrate || args.generate || args.cli;
+    args.revert || args.benchmark || args.calibrate || args.history || args.generate || args.cli;
 
   // Only prompt for a role when no command was given (keeps scripting non-interactive).
   let role = args.role;
@@ -781,6 +817,10 @@ export async function main(argv: string[], engine: Engine = createEngine()): Pro
   }
   if (args.calibrate) {
     await runCalibrate(engine, args);
+    return;
+  }
+  if (args.history) {
+    await runHistory(engine, args.json);
     return;
   }
   if (args.generate) {

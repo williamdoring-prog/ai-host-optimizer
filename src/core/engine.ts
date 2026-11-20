@@ -43,6 +43,16 @@ import {
   generateChecklistMarkdown,
   generateDockerfile,
 } from "./accessories.js";
+import {
+  appendHistory as appendHistoryToDisk,
+  configDigest,
+  detectRegressions,
+  hostIdentity,
+  loadHistory as loadHistoryFromDisk,
+  seriesKey,
+  type HistoryRecord,
+  type Regression,
+} from "./history.js";
 import type { ChecklistItem, HostProfile, OptimizationOption, Risk, SystemRole } from "./types.js";
 
 export type GenerateKind = "ansible" | "dockerfile" | "checklist";
@@ -71,6 +81,8 @@ export interface BenchmarkOptions {
   profile?: BenchmarkProfileId;
   /** Persist the result as the comparison baseline. */
   saveBaseline?: boolean;
+  /** Append the result to the benchmark history (default true). */
+  record?: boolean;
 }
 
 export interface CalibrateOptions {
@@ -108,6 +120,9 @@ export interface EngineDeps {
   revert: (dir?: string) => Promise<RevertResult>;
   /** Read the tool's own applied state (option ids it has written). */
   readState: () => Promise<{ optionIds: string[] } | undefined>;
+  /** Load and append benchmark history records. */
+  loadHistory: () => Promise<HistoryRecord[]>;
+  appendHistory: (record: HistoryRecord) => Promise<string>;
   /** The environment used to compare capabilities against configuration. */
   env: Record<string, string | undefined>;
   managedDir: () => string;
@@ -122,6 +137,7 @@ export interface Engine {
   revert(dir?: string): Promise<RevertResult>;
   benchmark(opts?: BenchmarkOptions): Promise<BenchmarkResult>;
   calibrate(ids: string[], opts?: CalibrateOptions): Promise<CalibrationReport>;
+  history(): Promise<{ records: HistoryRecord[]; regressions: Regression[] }>;
   generate(kind: GenerateKind, ids: string[]): string;
 }
 
@@ -140,6 +156,8 @@ export function defaultEngineDeps(): EngineDeps {
     applyPlan: applyPlanToDisk,
     revert: revertDisk,
     readState: () => readAppliedState(),
+    loadHistory: () => loadHistoryFromDisk(),
+    appendHistory: (record) => appendHistoryToDisk(record),
     env: process.env,
     managedDir,
   };
@@ -259,7 +277,29 @@ class EngineImpl implements Engine {
   async benchmark(opts: BenchmarkOptions = {}): Promise<BenchmarkResult> {
     const result = await this.deps.runBenchmark(opts.model, opts.samples, opts.profile);
     if (opts.saveBaseline) await this.deps.saveBaseline(result);
+    // Record the run for history/regression detection (best-effort).
+    if (result.tokensPerSec !== undefined && opts.record !== false) {
+      try {
+        const state = await this.deps.readState();
+        const digest = configDigest(state?.optionIds ?? []);
+        const host = hostIdentity();
+        await this.deps.appendHistory({
+          key: seriesKey(result, host, digest),
+          host,
+          configDigest: digest,
+          recordedAt: new Date().toISOString(),
+          result,
+        });
+      } catch {
+        // history is best-effort and must never fail a benchmark
+      }
+    }
     return result;
+  }
+
+  async history(): Promise<{ records: HistoryRecord[]; regressions: Regression[] }> {
+    const records = await this.deps.loadHistory();
+    return { records, regressions: detectRegressions(records) };
   }
 
   async calibrate(ids: string[], opts: CalibrateOptions = {}): Promise<CalibrationReport> {
