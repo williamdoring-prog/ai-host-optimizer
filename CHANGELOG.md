@@ -2,10 +2,10 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — multi-runtime benchmarking
+## 1.5.0 — 2026-11-20
 
-Tier-A evidence is no longer Ollama-only, so options on other runtimes can be
-measured too.
+Multi-runtime benchmarking: tier-A evidence is no longer Ollama-only, so options
+on other runtimes can be measured too.
 
 - **llama.cpp server** support: measures via `/completion` `timings` (decode,
   prefill, TTFT, inter-token latency).
