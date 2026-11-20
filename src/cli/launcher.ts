@@ -38,8 +38,8 @@ import { managedDir } from "../core/paths.js";
 import { compare, loadBaseline, type BenchmarkProfileId } from "../core/benchmark.js";
 import { detectRuntime } from "../core/runtimes.js";
 import { loadCalibrations } from "../core/calibration.js";
-import { detectConfiguration } from "../core/checklist.js";
-import { renderChecklist, applyabilityLabel } from "../render/checklist.js";
+import { detectConfiguration, isOptimalConfiguration } from "../core/checklist.js";
+import { renderChecklist, applyabilityLabel, optimalMessage } from "../render/checklist.js";
 import { renderPlan } from "../render/plan.js";
 
 export { ROLES };
@@ -255,7 +255,7 @@ export function runList(json = false): void {
   stdout.write(`Option registry (${OPTIONS.length} options)\n\n`);
   for (const o of OPTIONS) {
     const state = detectConfiguration(o)?.state;
-    const tag = state === "configured" ? " [already set]" : state === "partial" ? " [partially set]" : "";
+    const tag = state === "implemented" ? " [implemented]" : state === "partial" ? " [partial]" : "";
     stdout.write(`  ${applyabilityLabel(o)} ${o.id}${tag}\n`);
     stdout.write(`      ${o.name} — ${o.category}, risk ${o.risk}\n`);
   }
@@ -269,8 +269,7 @@ export async function runCli(engine: Engine, role?: SystemRole, json = false): P
     printJson({ profile, checklist: items });
     return;
   }
-  stdout.write(`${renderChecklist(profile, items)}\n`);
-  stdout.write("Next: --recommend   or   --plan --select <ids>   then   --apply --select <ids> [--yes]\n");
+  stdout.write(`${renderChecklist(profile, items, { version: VERSION })}\n`);
 }
 
 /** --recommend */
@@ -283,9 +282,16 @@ export async function runRecommend(engine: Engine, role: SystemRole, json = fals
   stdout.write(`${renderPlan(plan, `Recommended plan for the "${role}" role`)}\n\n`);
   if (plan.steps.length) {
     stdout.write(`Apply with: --apply --select ${plan.steps.map((s) => s.option.id).join(",")} [--yes]\n`);
-  } else {
-    stdout.write("No safe, applyable options were found for this host.\n");
+    return;
   }
+  // Nothing to recommend: distinguish "ideal configuration in place" from
+  // "nothing applyable on this host" so we don't suggest benchmarking a no-op.
+  const items = await engine.checklist(role);
+  if (isOptimalConfiguration(items)) {
+    stdout.write(`${optimalMessage(VERSION)}\n`);
+    return;
+  }
+  stdout.write("No safe, applyable options were found for this host.\n");
 }
 
 /** --plan */
@@ -463,8 +469,27 @@ export async function runCalibrate(engine: Engine, args: CliArgs): Promise<void>
     stdout.write("Run `--benchmark --save-baseline` first, then apply + restart, then calibrate.\n");
     return;
   }
+
+  // Do not benchmark options that are already implemented: there is no
+  // before/after change to measure against.
+  const alreadyImplemented = select.filter((id) => {
+    const option = OPTIONS.find((o) => o.id === id);
+    return option ? detectConfiguration(option)?.state === "implemented" : false;
+  });
+  const pending = select.filter((id) => !alreadyImplemented.includes(id));
+  if (alreadyImplemented.length) {
+    stdout.write(`Skipping already-implemented option(s): ${alreadyImplemented.join(", ")}\n`);
+  }
+  if (pending.length === 0) {
+    stdout.write(
+      "Nothing to calibrate: everything selected is already implemented, so there is no " +
+        "change to measure.\n",
+    );
+    return;
+  }
+
   stdout.write("Measuring the current state (tier A)…\n");
-  const report = await engine.calibrate(select, {
+  const report = await engine.calibrate(pending, {
     samples: args.samples,
     profile: args.profile as BenchmarkProfileId | undefined,
   });
@@ -531,13 +556,16 @@ export async function runDoctor(engine: Engine, role: SystemRole, json = false):
     detail: `${Object.keys(calibrations).length} entr(y/ies)`,
   });
 
-  // Capabilities vs configuration: how many options are already set.
-  const configured = OPTIONS.filter((o) => detectConfiguration(o)?.state === "configured").length;
-  const partial = OPTIONS.filter((o) => detectConfiguration(o)?.state === "partial").length;
+  // Capabilities vs configuration: how many options are already implemented.
+  const items = await engine.checklist(role);
+  const implemented = items.filter((i) => i.configuration?.state === "implemented").length;
+  const partial = items.filter((i) => i.configuration?.state === "partial").length;
   checks.push({
     name: "configuration",
     ok: true,
-    detail: `${configured} option(s) already set, ${partial} partially set`,
+    detail: isOptimalConfiguration(items)
+      ? "optimal — every applicable optimization is already implemented"
+      : `${implemented} option(s) already implemented, ${partial} partially set`,
   });
 
   if (json) {

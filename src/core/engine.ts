@@ -10,7 +10,7 @@
  * without profiling a real host or touching the real managed directory.
  */
 
-import { buildChecklist, isAdvisoryRole } from "./checklist.js";
+import { buildChecklist, detectConfiguration, isAdvisoryRole, pendingImprovements } from "./checklist.js";
 import { buildPlan, type Plan } from "./plan.js";
 import { OPTIONS } from "../registry/options.js";
 import { profileHost } from "./profiler.js";
@@ -108,6 +108,8 @@ export interface EngineDeps {
   revert: (dir?: string) => Promise<RevertResult>;
   /** Read the tool's own applied state (option ids it has written). */
   readState: () => Promise<{ optionIds: string[] } | undefined>;
+  /** The environment used to compare capabilities against configuration. */
+  env: Record<string, string | undefined>;
   managedDir: () => string;
 }
 
@@ -138,6 +140,7 @@ export function defaultEngineDeps(): EngineDeps {
     applyPlan: applyPlanToDisk,
     revert: revertDisk,
     readState: () => readAppliedState(),
+    env: process.env,
     managedDir,
   };
 }
@@ -151,7 +154,7 @@ class EngineImpl implements Engine {
 
   async checklist(role?: SystemRole): Promise<ChecklistItem[]> {
     const profile = await this.deps.profileHost(role);
-    const items = buildChecklist(profile, this.deps.options);
+    const items = buildChecklist(profile, this.deps.options, this.deps.env);
     // Mark options the tool itself applied (per state.json). A corrupt state
     // file must not break the read-only checklist.
     try {
@@ -180,13 +183,10 @@ class EngineImpl implements Engine {
   async recommend(role?: SystemRole, opts: RecommendOptions = {}): Promise<Plan> {
     const profile = await this.deps.profileHost(role);
     const calibrations = await this.deps.loadCalibrations();
-    const items = buildChecklist(profile, this.deps.options);
-    // Capabilities vs configuration: never recommend what is already configured.
-    const applicable = new Map(
-      items
-        .filter((i) => i.applicable && i.configuration?.state !== "configured")
-        .map((i) => [i.option.id, i.option]),
-    );
+    // Capabilities vs configuration: recommend only outstanding improvements
+    // (not already implemented, and not an exclusive alternative to one).
+    const items = buildChecklist(profile, this.deps.options, this.deps.env);
+    const applicable = new Map(pendingImprovements(items).map((i) => [i.option.id, i.option]));
     const maxRisk = opts.risk ? RISK_RANK[opts.risk] : 2;
 
     const candidates = [...applicable.values()]
@@ -263,6 +263,25 @@ class EngineImpl implements Engine {
   }
 
   async calibrate(ids: string[], opts: CalibrateOptions = {}): Promise<CalibrationReport> {
+    // Only measure options that are not already implemented: an option already
+    // in effect has no before/after change to measure, so benchmarking it would
+    // be measuring against a configuration that already contains it.
+    const byId = new Map(this.deps.options.map((o) => [o.id, o]));
+    const pending = ids.filter((id) => {
+      const option = byId.get(id);
+      return option ? detectConfiguration(option, this.deps.env)?.state !== "implemented" : true;
+    });
+    const skipped = ids.filter((id) => !pending.includes(id));
+    if (pending.length === 0) {
+      return {
+        recorded: [],
+        note:
+          `Nothing to calibrate: ${ids.join(", ")} ` +
+          `${ids.length === 1 ? "is" : "are"} already implemented, so there is no ` +
+          "before/after change to measure.",
+      };
+    }
+
     const baseline = await this.deps.loadBaseline();
     if (!baseline) {
       return {
@@ -288,7 +307,7 @@ class EngineImpl implements Engine {
         ? "A"
         : "A-";
     const recorded: CalibrationEntry[] = [];
-    for (const id of ids) {
+    for (const id of pending) {
       const entry: CalibrationEntry = {
         optionId: id,
         metric,
@@ -311,14 +330,15 @@ class EngineImpl implements Engine {
       await this.deps.recordCalibration(entry);
       recorded.push(entry);
     }
+    const suffix = skipped.length ? ` (skipped already-implemented: ${skipped.join(", ")})` : "";
     return {
       recorded,
       current,
       comparison,
       note:
-        tier === "N"
+        (tier === "N"
           ? "No change beyond the interval; recorded as a persisted null (tier N)."
-          : `Recorded tier-${tier} calibration for ${recorded.length} option(s).`,
+          : `Recorded tier-${tier} calibration for ${recorded.length} option(s).`) + suffix,
     };
   }
 

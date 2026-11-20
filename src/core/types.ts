@@ -284,7 +284,7 @@ export interface ChecklistItem {
 }
 
 /** How an option's desired configuration compares to the current environment. */
-export type ConfigurationState = "configured" | "partial" | "unset";
+export type ConfigurationState = "implemented" | "partial" | "unset";
 
 /** One target variable, desired vs currently set. */
 export interface ConfigurationCheck {

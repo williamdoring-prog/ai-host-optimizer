@@ -4,20 +4,42 @@ All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
 ## Unreleased — capability vs configuration
 
-Reports now compare **what could apply** against **what is already configured**,
-instead of only listing capabilities.
+Reports now compare **what could apply** against **what is already implemented**,
+instead of only listing capabilities, and the tool no longer recommends or
+benchmarks a no-op.
+
+- **The report leads with a summary.** Every report opens with a clear, honest
+  header — version, host, role, and the capability-vs-configuration status
+  (`N/M options applicable — A already implemented, B partial, C not
+  implemented`) plus the next step — before the profile and checklist detail.
+- **A cheerful "already optimal" message.** When nothing actionable is left, the
+  report shows: *"🎉 System already has an optimal configuration. Based on the
+  standards at the time of this build (ai-host-optimizer vX.Y.Z), every
+  applicable optimization is already implemented. Newer releases may know of
+  more…"* — honest about the fact that the standards are fixed at build time.
 
 - **Configuration probe.** Each option's target environment variables are
-  compared against the current environment: `configured` (all satisfied),
-  `partial` (some set / set differently) or `unset`.
+  compared against the current environment:
+  - `implemented` — at least one target variable is set and none of the set
+    variables fall short (so an option already in effect for the runtime you use
+    is not reported as outstanding);
+  - `partial` — a set variable falls short (a genuine remaining improvement);
+  - `unset` — nothing is set.
 - **Direction-aware for `size` options.** A numeric variable already at least as
-  good as the desired value counts as configured — so an option that would
+  good as the desired value counts as implemented — so an option that would
   *reduce* a higher existing value (e.g. a context length already set above the
   desired one) is not recommended.
+- **`--recommend` only lists improvements not yet implemented**, including
+  exclusive-group alternatives: if one member of a group (e.g. q8_0 KV cache) is
+  implemented, its rivals (q4_0) are not offered as "improvements".
+- **No benchmarking a no-op.** `--calibrate` refuses to measure options that are
+  already implemented (there is no before/after change), skipping them when only
+  some are; `--recommend` says "everything applicable is already implemented —
+  nothing to change, and nothing to benchmark" when that is the case.
 - **Surfaced everywhere:** the checklist marks items `[ ]` / `[~] partially set` /
-  `[✓] already set` with a per-variable detail line, `--list` tags options,
-  `--doctor` summarises the counts, `--json` and the MCP `checklist` include the
-  comparison, and `--recommend` skips fully configured options.
+  `[✓] implemented` with a per-variable detail line, `--list` tags options,
+  `--doctor` summarises the counts, and `--json` / the MCP `checklist` include the
+  comparison.
 - Options the tool itself applied (per `state.json`) are marked "applied by this
   tool".
 - Honest caveat: the probe proves the variable is set in the environment, not

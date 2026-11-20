@@ -130,21 +130,29 @@ against.
 
 ## Capabilities vs configuration
 
-A checklist of *what could apply* is not the same as *what is already set*. The
-profiler's `context` block answers "what is available"; a **configuration probe**
-answers "what is already configured" by comparing each option's target
-environment variables against the current environment:
+A checklist of *what could apply* is not the same as *what is already
+implemented*. The profiler's `context` block answers "what is available"; a
+**configuration probe** answers "what is already in place" by comparing each
+option's target environment variables against the current environment:
 
-- `configured` — every target variable already meets or beats the desired value
-  (for `size` options, compared numerically in the option's direction, so a value
-  already higher is not reported as an improvement);
-- `partial` — some target variables are set (or set differently);
+- `implemented` — at least one target variable is set and **none** of the set
+  variables fall short. Variables for runtimes you are not running stay unset, so
+  an option already in effect for the runtime you use is not reported as an
+  outstanding change;
+- `partial` — a set variable falls short of the desired value (a real remaining
+  improvement);
 - `unset` — none are set.
 
-The checklist renders this as `[ ]` / `[~]` / `[✓]`, `--recommend` skips fully
-configured options, `--doctor` summarises the counts, and the MCP `checklist` tool
-returns the comparison per option. The tool's own applied state (`state.json`)
-also marks options as applied.
+For `size` options the comparison is numeric and direction-aware, so a value
+already at least as good as the desired one counts as implemented.
+
+The checklist renders this as `[ ]` / `[~]` / `[✓]`; `--recommend` lists only
+improvements that are not yet implemented (and does not offer an exclusive-group
+alternative when a sibling is already implemented); `--calibrate` refuses to
+benchmark an already-implemented option, because there is no before/after change
+to measure; `--doctor` summarises the counts; and the MCP `checklist` tool returns
+the comparison per option. The tool's own applied state (`state.json`) also marks
+options as applied.
 
 Caveat: the probe proves the variable is set *in this environment*, not that the
 running server has picked it up — restart the runtime if it started before the

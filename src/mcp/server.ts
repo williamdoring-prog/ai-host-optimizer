@@ -143,7 +143,7 @@ export function createServer(engine: Engine = createEngine()): McpServer {
       const profile = await engine.profile(role);
       const items = await engine.checklist(role);
       return {
-        content: [{ type: "text", text: renderChecklist(profile, items) }],
+        content: [{ type: "text", text: renderChecklist(profile, items, { version: VERSION }) }],
         structuredContent: {
           role: profile.role,
           items: items.map(publicChecklistItem),

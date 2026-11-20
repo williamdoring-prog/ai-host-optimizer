@@ -24,6 +24,7 @@ function engineWith(overrides: Partial<EngineDeps> = {}): Engine {
     managedDir: () => "/tmp/aiho-engine-test",
     applyPlan: async (_plan, dryRun) => ({ dryRun: dryRun ?? true, written: [] }),
     readState: async () => undefined,
+    env: {},
     ...overrides,
   });
 }
@@ -47,17 +48,26 @@ test("recommend can include advisory options on request", async () => {
   assert.ok(plan.steps.some((s) => s.option.applyOp === undefined));
 });
 
-test("recommend skips options that are already configured", async () => {
-  const saved = { ...process.env };
-  process.env["OLLAMA_CONTEXT_LENGTH"] = "8192";
-  try {
-    const plan = await engineWith().recommend("workstation");
-    const ids = plan.steps.map((s) => s.option.id);
-    assert.ok(!ids.includes("ollama-context-length"), "already-configured option must be skipped");
-    assert.ok(ids.includes("flash-attention"), "unconfigured options are still recommended");
-  } finally {
-    process.env = saved;
-  }
+test("recommend skips options that are already implemented", async () => {
+  const plan = await engineWith({ env: { OLLAMA_CONTEXT_LENGTH: "8192" } }).recommend("workstation");
+  const ids = plan.steps.map((s) => s.option.id);
+  assert.ok(!ids.includes("ollama-context-length"), "already-implemented option must be skipped");
+  assert.ok(ids.includes("flash-attention"), "unimplemented options are still recommended");
+});
+
+test("recommend skips an option whose set targets are already satisfied", async () => {
+  // Only the Ollama target is set; it satisfies its desired value, so the
+  // improvement is already in effect and must not be recommended.
+  const plan = await engineWith({ env: { OLLAMA_MAX_QUEUE: "1024" } }).recommend("workstation");
+  assert.ok(!plan.steps.map((s) => s.option.id).includes("ollama-max-queue"));
+});
+
+test("recommend does not suggest an exclusive alternative when a sibling is implemented", async () => {
+  // q8_0 is implemented; q4_0 is an alternative, not an outstanding improvement.
+  const plan = await engineWith({ env: { OLLAMA_KV_CACHE_TYPE: "q8_0" } }).recommend("workstation");
+  const ids = plan.steps.map((s) => s.option.id);
+  assert.ok(!ids.includes("kv-cache-quant-q4"));
+  assert.ok(!ids.includes("kv-cache-quant-q8"));
 });
 
 test("checklist marks options the tool applied (from state)", async () => {
@@ -101,6 +111,21 @@ test("calibrate without a baseline records nothing and says so", async () => {
   const report = await engine.calibrate(["flash-attention"]);
   assert.equal(report.recorded.length, 0);
   assert.match(report.note, /no baseline/i);
+});
+
+test("calibrate does not benchmark when everything selected is already implemented", async () => {
+  let benchmarked = false;
+  const engine = engineWith({
+    env: { OLLAMA_CONTEXT_LENGTH: "8192" },
+    runBenchmark: async () => {
+      benchmarked = true;
+      throw new Error("benchmark should not run");
+    },
+  });
+  const report = await engine.calibrate(["ollama-context-length"]);
+  assert.equal(report.recorded.length, 0);
+  assert.match(report.note, /already implemented/i);
+  assert.equal(benchmarked, false);
 });
 
 test("generate produces registry-derived output", () => {

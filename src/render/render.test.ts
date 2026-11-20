@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { applyabilityLabel, improvementSummary, renderChecklist, renderProfile } from "./checklist.js";
+import { applyabilityLabel, improvementSummary, optimalMessage, renderChecklist, renderProfile, renderSummary } from "./checklist.js";
+import { isOptimalConfiguration } from "../core/checklist.js";
 import { renderPlan } from "./plan.js";
 import type { ChecklistItem, HostProfile, OptimizationOption } from "../core/types.js";
 import type { Plan } from "../core/plan.js";
@@ -86,4 +87,51 @@ test("renderPlan shows steps, rejections, combined estimate and notes", () => {
   assert.match(out, /bad: unknown option id/);
   assert.match(out, /Combined estimate: 50%/);
   assert.match(out, /note: a note/);
+});
+
+test("isOptimal and optimalMessage report an already-optimal system", () => {
+  const implemented: ChecklistItem = {
+    option: option({ applyOp: "env" }),
+    applicable: true,
+    blockedBy: [],
+    configuration: { state: "implemented", checks: [{ name: "X", desired: "1", current: "1", satisfied: true }] },
+  };
+  const pending: ChecklistItem = {
+    option: option({ id: "y", applyOp: "env" }),
+    applicable: true,
+    blockedBy: [],
+    configuration: { state: "unset", checks: [{ name: "Y", desired: "1", satisfied: false }] },
+  };
+  assert.equal(isOptimalConfiguration([implemented]), true);
+  assert.equal(isOptimalConfiguration([implemented, pending]), false);
+  // Advisory-only options (no applyOp) are not actionable.
+  assert.equal(isOptimalConfiguration([{ option: option(), applicable: true, blockedBy: [] }]), false);
+  assert.match(optimalMessage("1.5.0"), /optimal configuration/);
+  assert.match(optimalMessage("1.5.0"), /1\.5\.0/);
+});
+
+test("renderSummary leads the report with an honest summary", () => {
+  const items: ChecklistItem[] = [
+    { option: option({ applyOp: "env" }), applicable: true, blockedBy: [], configuration: { state: "implemented", checks: [] } },
+    { option: option({ id: "todo", applyOp: "env" }), applicable: true, blockedBy: [], configuration: { state: "unset", checks: [] } },
+  ];
+  const out = renderSummary(profile, items, "1.5.0");
+  assert.match(out, /^AI host optimization report/);
+  assert.match(out, /host\s+: linux/);
+  assert.match(out, /status\s+: 2\/2 options applicable/);
+  assert.match(out, /next\s+: --recommend/);
+});
+
+test("renderChecklist shows the optimal message when nothing is outstanding", () => {
+  const items: ChecklistItem[] = [
+    {
+      option: option({ applyOp: "env" }),
+      applicable: true,
+      blockedBy: [],
+      configuration: { state: "implemented", checks: [] },
+    },
+  ];
+  const out = renderChecklist(profile, items, { version: "9.9.9" });
+  assert.match(out, /optimal configuration/);
+  assert.match(out, /9\.9\.9/);
 });

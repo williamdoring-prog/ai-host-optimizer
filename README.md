@@ -230,10 +230,16 @@ claims a win.
   **one-of groups**; stackable options are marked **stackable**.
 - **Role-aware**: a `container` cannot tune the host kernel; a `cluster-node` is
   **advisory-only**.
-- **Capability vs configuration**: the checklist compares each option's target
-  variables against your current environment and marks them `[ ]` todo,
-  `[~] partially set` or `[✓] already set`; `--recommend` skips what is already
-  configured. Numeric (`size`) options are compared direction-aware, so a value
+- **Capability vs configuration**: the report **leads with a summary** (version,
+  host, and `N/M options applicable — A already implemented, B partial, C not
+  implemented`), then compares each option's target variables against your
+  current environment (`[ ]` todo, `[~] partially set`, `[✓] implemented`). When
+  nothing actionable is left it says so plainly — *"🎉 System already has an
+  optimal configuration"*, qualified as "based on the standards at the time of
+  this build". `--recommend` lists **only improvements not yet implemented**
+  (including exclusive-group alternatives), and `--calibrate` refuses to
+  benchmark an already-implemented option — there is no before/after change to
+  measure. Numeric (`size`) options are compared direction-aware, so a value
   already higher than the desired one is never "improved" downwards.
 
 ## Requirements

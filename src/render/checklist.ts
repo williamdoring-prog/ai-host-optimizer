@@ -7,6 +7,11 @@
  */
 
 import type { ChecklistItem, HostProfile, OptimizationOption } from "../core/types.js";
+import {
+  actionableItems,
+  isOptimalConfiguration,
+  outstandingImprovements,
+} from "../core/checklist.js";
 
 /** `[applyable]` when an option has an automated op, else `[advisory]`. */
 export function applyabilityLabel(option: OptimizationOption): string {
@@ -75,12 +80,12 @@ export function renderProfile(profile: HostProfile): string {
   return lines.join("\n");
 }
 
-/** The status glyph for a checklist item: n/a, already set, partial, or todo. */
+/** The status glyph for a checklist item: n/a, implemented, partial, or todo. */
 export function checklistMark(item: ChecklistItem): string {
   if (!item.applicable) return "[x] n/a";
   switch (item.configuration?.state) {
-    case "configured":
-      return "[✓] set";
+    case "implemented":
+      return "[✓] done";
     case "partial":
       return "[~] part";
     default:
@@ -88,13 +93,83 @@ export function checklistMark(item: ChecklistItem): string {
   }
 }
 
-/** Render the read-only checklist (profile + options + configuration). */
+/**
+ * A clear, honest, cheerful "nothing left to do" message. The honesty is in the
+ * qualifier: the judgement is against the standards known to *this build*.
+ */
+export function optimalMessage(version?: string): string {
+  const build = version ? `ai-host-optimizer v${version}` : "this build";
+  return [
+    "🎉 System already has an optimal configuration.",
+    "   Based on the standards at the time of this build (" + build + "), every",
+    "   applicable optimization is already implemented. Newer releases may know of",
+    "   more — check for updates, and re-run after upgrading.",
+  ].join("\n");
+}
+
+/** A human-readable summary of an option's configuration comparison. */
+function configDetail(configuration: NonNullable<ChecklistItem["configuration"]>): string {
+  const ok = configuration.checks
+    .filter((c) => c.current !== undefined && c.satisfied)
+    .map((c) => `${c.name}=${c.current} (ok)`);
+  const diff = configuration.checks
+    .filter((c) => c.current !== undefined && !c.satisfied)
+    .map((c) => `${c.name}=${c.current} → want ${c.desired}`);
+  const unset = configuration.checks.filter((c) => c.current === undefined).map((c) => c.name);
+  const parts = [...ok, ...diff];
+  if (unset.length) parts.push(`not set: ${unset.join(", ")}`);
+  return parts.join("; ");
+}
+
+/** A one-line host description for the summary. */
+function hostLine(profile: HostProfile): string {
+  const bits: string[] = [`${profile.platform} ${profile.os.arch}`];
+  bits.push(`${profile.cpu.model} (${profile.cpu.cores} cores)`);
+  bits.push(`${Math.round(profile.memory.totalMiB / 1024)} GiB RAM`);
+  if (profile.gpu?.length) bits.push(profile.gpu.map((g) => `${g.vendor} ${g.name}`).join(", "));
+  return bits.join(" — ");
+}
+
+/**
+ * The report's lead: a clear, honest summary of the host and the
+ * capability-vs-configuration status, before any detail.
+ */
+export function renderSummary(
+  profile: HostProfile,
+  items: ChecklistItem[],
+  version?: string,
+): string {
+  const applicable = items.filter((i) => i.applicable);
+  const actionable = actionableItems(items);
+  const implemented = actionable.filter((i) => i.configuration?.state === "implemented");
+  // Outstanding = actionable, not implemented, not an exclusive alternative.
+  const outstanding = outstandingImprovements(items);
+  const partial = outstanding.filter((i) => i.configuration?.state === "partial");
+  const todo = outstanding.filter((i) => i.configuration?.state !== "partial");
+  const lines = [
+    "AI host optimization report (read-only — nothing has been changed)",
+    `  version : ai-host-optimizer${version ? ` v${version}` : ""}`,
+    `  host    : ${hostLine(profile)}`,
+    `  role    : ${profile.role ?? "workstation"}`,
+    `  status  : ${applicable.length}/${items.length} options applicable — ` +
+      `${implemented.length} already implemented, ${partial.length} partial, ` +
+      `${todo.length} not implemented`,
+  ];
+  if (isOptimalConfiguration(items)) {
+    lines.push("", optimalMessage(version));
+  } else {
+    lines.push("  next    : --recommend   (or --plan --select <ids>)");
+  }
+  return lines.join("\n");
+}
+
+/** Render the read-only checklist (summary + profile + options + configuration). */
 export function renderChecklist(
   profile: HostProfile,
   items: ChecklistItem[],
-  opts: { includeProfile?: boolean } = {},
+  opts: { includeProfile?: boolean; version?: string } = {},
 ): string {
-  const lines: string[] = [];
+  const lines: string[] = [renderSummary(profile, items, opts.version), ""];
   if (opts.includeProfile !== false) {
     lines.push(renderProfile(profile), "");
   }
@@ -103,15 +178,6 @@ export function renderChecklist(
   if (roleNote) lines.push(`NOTE: ${roleNote}`);
   if (advisory) lines.push("NOTE: this role is ADVISORY ONLY — the tool will not apply changes here.");
   if (roleNote || advisory) lines.push("");
-
-  const applicable = items.filter((i) => i.applicable);
-  const configured = applicable.filter((i) => i.configuration?.state === "configured");
-  const partial = applicable.filter((i) => i.configuration?.state === "partial");
-  lines.push(
-    `Capabilities vs configuration: ${applicable.length}/${items.length} options applicable; ` +
-      `${configured.length} already configured, ${partial.length} partially.`,
-    "",
-  );
 
   lines.push("Optimization checklist (read-only)", "");
   for (const item of items) {
@@ -126,13 +192,7 @@ export function renderChecklist(
     if (o.requires.length) lines.push(`      requires: ${o.requires.join(", ")}`);
     if (!item.applicable && item.reason) lines.push(`      n/a: ${item.reason}`);
     if (item.configuration && item.configuration.state !== "unset") {
-      const detail = item.configuration.checks
-        .map((c) => {
-          if (c.current === undefined) return `${c.name}=(unset) → want ${c.desired}`;
-          return c.satisfied ? `${c.name}=${c.current} (ok)` : `${c.name}=${c.current} → want ${c.desired}`;
-        })
-        .join(", ");
-      lines.push(`      config: ${item.configuration.state} — ${detail}`);
+      lines.push(`      config: ${item.configuration.state} — ${configDetail(item.configuration)}`);
     }
     if (item.appliedByTool) lines.push("      applied by this tool (see --revert)");
     lines.push("");

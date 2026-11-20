@@ -231,6 +231,41 @@ export function isApplicable(
   return { applicable: true };
 }
 
+/** Options the tool could act on here: applicable and automated (has an applyOp). */
+export function actionableItems(items: ChecklistItem[]): ChecklistItem[] {
+  return items.filter((i) => i.applicable && i.option.applyOp !== undefined);
+}
+
+/**
+ * Applicable options that still represent an outstanding change: not already
+ * implemented, and not an exclusive-group alternative to an implemented sibling
+ * (if q8_0 is implemented, q4_0 is not an improvement). Includes advisory
+ * options; callers decide whether those count.
+ */
+export function pendingImprovements(items: ChecklistItem[]): ChecklistItem[] {
+  const implementedGroups = new Set(
+    items
+      .filter((i) => i.applicable && i.configuration?.state === "implemented" && i.option.exclusiveGroup)
+      .map((i) => i.option.exclusiveGroup as string),
+  );
+  return items.filter(
+    (i) =>
+      i.applicable &&
+      i.configuration?.state !== "implemented" &&
+      !(i.option.exclusiveGroup && implementedGroups.has(i.option.exclusiveGroup)),
+  );
+}
+
+/** The automated (applyOp) subset of the outstanding changes. */
+export function outstandingImprovements(items: ChecklistItem[]): ChecklistItem[] {
+  return pendingImprovements(items).filter((i) => i.option.applyOp !== undefined);
+}
+
+/** True when there is nothing actionable left to improve. */
+export function isOptimalConfiguration(items: ChecklistItem[]): boolean {
+  return actionableItems(items).length > 0 && outstandingImprovements(items).length === 0;
+}
+
 /** Role-specific advisory note, if any. */
 function roleNoteFor(role: SystemRole | undefined): string | undefined {
   switch (role) {
@@ -274,9 +309,16 @@ function valueSatisfies(desired: string, current: string, guard?: SizeGuard): bo
  * Compare an option's desired configuration against the current environment.
  *
  * This is what turns a *capability* report into a *capability vs configuration*
- * report: an option whose target variables already satisfy the desired values is
- * reported as configured rather than as a change to make. `undefined` for
- * options that declare no environment (advisory-only).
+ * report. `undefined` for options that declare no environment (advisory-only).
+ *
+ * States:
+ *  - `implemented` — at least one target variable is set and **none** of the set
+ *    variables fall short of the desired value. Variables belonging to runtimes
+ *    you are not running simply stay unset, so an option that is already in
+ *    effect for the runtime you use is not reported as an outstanding change.
+ *  - `partial` — some variable is set but falls short (a genuine remaining
+ *    improvement, e.g. a lower value that could be raised).
+ *  - `unset` — nothing is set.
  */
 export function detectConfiguration(
   option: OptimizationOption,
@@ -290,9 +332,9 @@ export function detectConfiguration(
     const satisfied = current !== undefined && valueSatisfies(desired, current, option.size);
     return { name, desired, current, satisfied };
   });
-  const matched = checks.filter((c) => c.satisfied).length;
-  const anySet = checks.some((c) => c.current !== undefined);
-  const state = matched === checks.length ? "configured" : anySet ? "partial" : "unset";
+  const set = checks.filter((c) => c.current !== undefined);
+  const state =
+    set.length === 0 ? "unset" : set.every((c) => c.satisfied) ? "implemented" : "partial";
   return { state, checks };
 }
 
