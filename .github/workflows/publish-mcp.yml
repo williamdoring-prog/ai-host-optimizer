@@ -59,22 +59,22 @@ jobs:
           fi
 
       # The MCP Registry verifies ownership via the `mcpName` marker inside the
-      # *published* npm package, so the version must be visible on npm before the
-      # registry step runs — otherwise it fails with a spurious "not found".
+      # *published* npm package, so the version should be visible on npm before
+      # the registry step runs. This is best-effort and must never fail the
+      # release: if npm's metadata lags, we continue anyway.
       - name: Wait for the npm version to propagate
         run: |
-          set -euo pipefail
+          set -uo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
-          for attempt in $(seq 1 30); do
-            if npm view "ai-host-optimizer@${VERSION}" version >/dev/null 2>&1; then
+          for attempt in $(seq 1 24); do
+            if curl -fsS "https://registry.npmjs.org/ai-host-optimizer/${VERSION}" >/dev/null; then
               echo "ai-host-optimizer@${VERSION} is visible on npm."
               exit 0
             fi
-            echo "waiting for npm to serve ${VERSION} (attempt ${attempt}/30)..."
+            echo "waiting for npm to serve ${VERSION} (attempt ${attempt}/24)..."
             sleep 5
           done
-          echo "timed out waiting for npm to serve ${VERSION}" >&2
-          exit 1
+          echo "warning: npm did not serve ${VERSION} within the wait window; continuing anyway." >&2
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
