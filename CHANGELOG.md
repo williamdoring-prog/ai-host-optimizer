@@ -2,7 +2,9 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — interactive selector
+## 1.7.0 — 2026-11-20
+
+Interactive selector: choose what to apply with a checkbox UI.
 
 - **`--interactive` (`-i`)**: after a system review, choose changes with a
   dependency-free checkbox UI — **↑/↓** move, **space**/**←**/**→** toggle,
