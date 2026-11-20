@@ -45,7 +45,18 @@ jobs:
         # No NPM_TOKEN: npm exchanges the GitHub OIDC token automatically.
         # Requires a Trusted Publisher configured on npmjs.com for this repo +
         # workflow filename (see docs/publishing.md).
-        run: npm publish --access public
+        #
+        # Idempotent: if the tag's version is already on npm (e.g. a re-run after
+        # the MCP Registry step failed), skip the publish so the remaining steps
+        # can still run instead of failing with EPUBLISHCONFLICT.
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          if npm view "ai-host-optimizer@${VERSION}" version >/dev/null 2>&1; then
+            echo "ai-host-optimizer@${VERSION} is already published — skipping npm publish."
+          else
+            npm publish --access public
+          fi
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
