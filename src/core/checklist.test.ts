@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { OPTIONS } from "../registry/options.js";
-import { buildChecklist, validateRegistry } from "./checklist.js";
-import type { HostProfile } from "./types.js";
+import { buildChecklist, isAdvisoryRole, validateRegistry } from "./checklist.js";
+import type { HostProfile, OptimizationOption } from "./types.js";
 
 const fakeLinux: HostProfile = {
   timestamp: new Date().toISOString(),
@@ -87,4 +87,134 @@ test("vendor gating: CUDA applicable when an NVIDIA GPU is present", () => {
   const items = buildChecklist(withNvidia, OPTIONS);
   const cuda = items.find((i) => i.option.id === "cuda-backend")!;
   assert.equal(cuda.applicable, true);
+});
+
+test("detected container context (no role) disables privileged options", () => {
+  const items = buildChecklist({ ...fakeLinux, context: { container: "docker" } }, OPTIONS);
+  const zram = items.find((i) => i.option.id === "zram")!;
+  assert.equal(zram.applicable, false);
+  assert.match(zram.reason ?? "", /container/);
+});
+
+test("explicit non-container role wins over a detected container context", () => {
+  const items = buildChecklist(
+    { ...fakeLinux, role: "workstation", context: { container: "docker" } },
+    OPTIONS,
+  );
+  const zram = items.find((i) => i.option.id === "zram")!;
+  assert.equal(zram.applicable, true);
+});
+
+test("explicitly empty visibleGpus gates vendor options but not others", () => {
+  const items = buildChecklist({ ...fakeLinux, context: { visibleGpus: [] } }, OPTIONS);
+  const rocm = items.find((i) => i.option.id === "rocm-backend")!;
+  assert.equal(rocm.applicable, false);
+  assert.match(rocm.reason ?? "", /no GPU visible/);
+  const flash = items.find((i) => i.option.id === "flash-attention")!;
+  assert.equal(flash.applicable, true);
+});
+
+test("non-empty visibleGpus does not gate vendor logic", () => {
+  const items = buildChecklist({ ...fakeLinux, context: { visibleGpus: ["0"] } }, OPTIONS);
+  const rocm = items.find((i) => i.option.id === "rocm-backend")!;
+  assert.equal(rocm.applicable, false);
+  assert.match(rocm.reason ?? "", /amd/);
+});
+
+// --- registry validation -----------------------------------------------------
+
+function option(over: Partial<OptimizationOption> = {}): OptimizationOption {
+  return {
+    id: "test-opt",
+    name: "Test option",
+    description: "fixture",
+    category: "runtime",
+    platforms: ["linux"],
+    requiresPrivilege: false,
+    risk: "low",
+    reversibility: "fully-reversible",
+    resourceCost: {},
+    expectedImprovement: { metric: "m", tier: "C" },
+    conflictsWith: [],
+    synergizesWith: [],
+    requires: [],
+    source: "https://example.com/docs",
+    ...over,
+  };
+}
+
+test("validation rejects duplicate ids", () => {
+  const problems = validateRegistry([option({ id: "a" }), option({ id: "a" })]);
+  assert.ok(problems.some((p) => /duplicate option id/.test(p)));
+});
+
+test("validation rejects an unknown applyOp", () => {
+  const problems = validateRegistry([option({ applyOp: "bogus" as never })]);
+  assert.ok(problems.some((p) => /unknown applyOp/.test(p)));
+});
+
+test("validation rejects env declared without the env op and vice versa", () => {
+  assert.ok(
+    validateRegistry([option({ applyOp: "env" })]).some((p) => /no env variables/.test(p)),
+  );
+  assert.ok(
+    validateRegistry([option({ env: { ollama: { X: "1" } } })]).some((p) =>
+      /applyOp is not "env"/.test(p),
+    ),
+  );
+});
+
+test("validation rejects malformed env names, targets and values", () => {
+  const badName = validateRegistry([option({ applyOp: "env", env: { ollama: { "bad-name": "1" } } })]);
+  assert.ok(badName.some((p) => /invalid env variable name/.test(p)));
+
+  const badTarget = validateRegistry([option({ applyOp: "env", env: { "../evil": { X: "1" } } })]);
+  assert.ok(badTarget.some((p) => /invalid env target name/.test(p)));
+
+  const newline = validateRegistry([option({ applyOp: "env", env: { ollama: { X: "a\nb" } } })]);
+  assert.ok(newline.some((p) => /newline/.test(p)));
+
+  const template = validateRegistry([
+    option({ applyOp: "env", env: { ollama: { X: "{{ lookup('pipe','id') }}" } } }),
+  ]);
+  assert.ok(template.some((p) => /template markers/.test(p)));
+});
+
+test("validation rejects invalid combine models", () => {
+  const problems = validateRegistry([option({ combine: "bogus" as never })]);
+  assert.ok(problems.some((p) => /invalid combine/.test(p)));
+});
+
+test("validation detects requires self-reference and cycles", () => {
+  assert.ok(
+    validateRegistry([option({ id: "a", requires: ["a"] })]).some((p) => /requires itself/.test(p)),
+  );
+  const cyclic = validateRegistry([
+    option({ id: "a", requires: ["b"] }),
+    option({ id: "b", requires: ["a"] }),
+  ]);
+  assert.ok(cyclic.some((p) => /requires cycle/.test(p)));
+});
+
+test("validation rejects dangling path-like citations but allows prose", () => {
+  assert.ok(
+    validateRegistry([option({ source: "research/mcp/does-not-exist.md" })]).some((p) =>
+      /neither a URL nor an existing file/.test(p),
+    ),
+  );
+  assert.deepEqual(validateRegistry([option({ source: "Ollama documentation." })]), []);
+});
+
+test("validation rejects a tier-B estimate without a method or number", () => {
+  const problems = validateRegistry([
+    option({ expectedImprovement: { metric: "m", tier: "B", estimate: 0.1 } }),
+  ]);
+  assert.ok(problems.some((p) => /tier B estimate requires a method/.test(p)));
+});
+
+test("isAdvisoryRole is true only for governed/ephemeral roles", () => {
+  assert.equal(isAdvisoryRole("cluster-node"), true);
+  assert.equal(isAdvisoryRole("ci-runner"), true);
+  assert.equal(isAdvisoryRole("workstation"), false);
+  assert.equal(isAdvisoryRole(undefined), false);
 });

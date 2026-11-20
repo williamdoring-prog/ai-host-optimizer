@@ -2,8 +2,9 @@
 /**
  * ai-host-optimizer — entry point.
  *
- * M0: read-only. Profiles the host and prints a checklist, or runs as an MCP
- * stdio server. No system changes.
+ * Dispatches to the CLI launcher (profile/plan/recommend/apply/benchmark/…).
+ * Profiling and planning are read-only; applying is consent-driven, dry-run by
+ * default, contained to the managed directory and fully reversible.
  */
 
 import { main } from "./cli/launcher.js";

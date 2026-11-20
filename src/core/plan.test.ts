@@ -95,7 +95,7 @@ test("a null calibration result does NOT promote or inflate the estimate", () =>
       delta: 0.02,
       noiseFloor: 0.05,
       significant: false,
-      tier: "C" as const,
+      tier: "N" as const,
       measuredAt: new Date().toISOString(),
       samples: 3,
       method: "test",

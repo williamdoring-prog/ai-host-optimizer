@@ -41,10 +41,13 @@ export interface Plan {
   notes: string[];
 }
 
-/** Weakest tier wins: A < B < C in strength, so the combined tier is the max. */
+/** Weakest tier wins for a combined figure. `N` (measured null) carries no magnitude. */
 function weakestTier(tiers: ImprovementTier[]): ImprovementTier {
-  if (tiers.includes("C")) return "C";
-  if (tiers.includes("B")) return "B";
+  const meaningful = tiers.filter((t) => t !== "N");
+  if (meaningful.length === 0) return "N";
+  if (meaningful.includes("C")) return "C";
+  if (meaningful.includes("B")) return "B";
+  if (meaningful.includes("A-")) return "A-";
   return "A";
 }
 
@@ -93,7 +96,7 @@ export function buildPlan(
     const cal = calibrations[option.id];
     if (!cal) return option;
 
-    if (cal.significant === false) {
+    if (cal.tier === "N" || cal.significant === false) {
       return {
         ...option,
         expectedImprovement: {
@@ -105,13 +108,16 @@ export function buildPlan(
       };
     }
 
+    const singleSession = cal.tier === "A-";
     return {
       ...option,
       expectedImprovement: {
         metric: cal.metric,
         estimate: cal.delta,
-        tier: "A",
-        method: `measured on this host${cal.model ? ` on "${cal.model}"` : ""} (${cal.samples} observation(s))`,
+        tier: cal.tier,
+        method:
+          `measured on this host${cal.model ? ` on "${cal.model}"` : ""} ` +
+          `(${cal.samples} observation(s)${singleSession ? ", single session — magnitude uncertain" : ""})`,
       },
     };
   };
@@ -183,6 +189,14 @@ export function buildPlan(
     }
     if (combined.tier !== "A") {
       notes.push("No on-host measurement (tier A) backs this; treat the combined figure as an estimate.");
+    }
+    // A single-session (A-) contributor is not strong enough to combine.
+    if (numeric.some((o) => o.expectedImprovement.tier === "A-")) {
+      combined = undefined;
+      notes.push(
+        "A contributor was measured in a single session (tier A-); the combined figure is " +
+          "withheld until the result is reproduced.",
+      );
     }
   }
 

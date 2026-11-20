@@ -1,0 +1,87 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { createEngine, type Engine, type EngineDeps } from "./engine.js";
+import { OPTIONS } from "../registry/options.js";
+import type { HostProfile } from "./types.js";
+
+const profile: HostProfile = {
+  timestamp: new Date().toISOString(),
+  platform: "linux",
+  role: "workstation",
+  os: { platform: "linux", release: "6.0", arch: "x64" },
+  cpu: { model: "test", cores: 8 },
+  memory: { totalMiB: 32768, freeMiB: 16384 },
+  gpu: [{ vendor: "nvidia", name: "Test GPU", vramMiB: 24576, source: "test" }],
+  tooling: [],
+};
+
+function engineWith(overrides: Partial<EngineDeps> = {}): Engine {
+  return createEngine({
+    options: OPTIONS,
+    profileHost: async (role) => ({ ...profile, role }),
+    loadCalibrations: async () => ({}),
+    managedDir: () => "/tmp/aiho-engine-test",
+    applyPlan: async (_plan, dryRun) => ({ dryRun: dryRun ?? true, written: [] }),
+    ...overrides,
+  });
+}
+
+test("recommend picks applyable, conflict-free options and pulls prerequisites", async () => {
+  const engine = engineWith();
+  const plan = await engine.recommend("workstation");
+  const ids = plan.steps.map((s) => s.option.id);
+  assert.ok(ids.includes("flash-attention"), "prerequisite should be pulled in");
+  assert.ok(ids.includes("kv-cache-quant-q8"), "applyable option should be selected");
+  assert.ok(!ids.includes("kv-cache-quant-q4"), "exclusive rival must not be selected");
+  // Nothing advisory-only should appear by default.
+  for (const step of plan.steps) {
+    assert.ok(step.option.applyOp, `${step.option.id} should be applyable`);
+  }
+});
+
+test("recommend can include advisory options on request", async () => {
+  const engine = engineWith();
+  const plan = await engine.recommend("workstation", { includeAdvisory: true });
+  assert.ok(plan.steps.some((s) => s.option.applyOp === undefined));
+});
+
+test("apply allows a dry run without consent but refuses a real write", async () => {
+  const engine = engineWith();
+  const plan = await engine.plan(["flash-attention"], "workstation");
+  const dry = await engine.apply(plan, { consent: false, dryRun: true, role: "workstation" });
+  assert.equal(dry.result.dryRun, true);
+  await assert.rejects(
+    () => engine.apply(plan, { consent: false, dryRun: false, role: "workstation" }),
+    /consent/,
+  );
+});
+
+test("apply refuses an advisory role unless forced", async () => {
+  const engine = engineWith();
+  const plan = await engine.plan(["flash-attention"], "ci-runner");
+  await assert.rejects(
+    () => engine.apply(plan, { consent: true, dryRun: true, role: "ci-runner" }),
+    /advisory/,
+  );
+  const forced = await engine.apply(plan, {
+    consent: true,
+    dryRun: true,
+    role: "ci-runner",
+    forceAdvisory: true,
+  });
+  assert.equal(forced.result.dryRun, true);
+});
+
+test("calibrate without a baseline records nothing and says so", async () => {
+  const engine = engineWith({ loadBaseline: async () => undefined });
+  const report = await engine.calibrate(["flash-attention"]);
+  assert.equal(report.recorded.length, 0);
+  assert.match(report.note, /no baseline/i);
+});
+
+test("generate produces registry-derived output", () => {
+  const engine = engineWith();
+  const dockerfile = engine.generate("dockerfile", ["hf-cache-location"]);
+  assert.match(dockerfile, /ENV HF_HOME=/);
+});

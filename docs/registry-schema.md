@@ -32,12 +32,14 @@ interface OptimizationOption {
   conflictsWith: string[];    // ids that must not be applied together
   synergizesWith: string[];   // preferred companions
   requires: string[];         // prerequisites
-  applyOp?: string;           // allow-listed operation id; absent = advisory only
+  applyOp?: "env" | "systemd-dropin";
+                              // allow-listed operation id; absent = advisory only
   env?: Record<string, Record<string, string>>;
                               // target runtime -> { NAME: value }, e.g.
                               // { ollama: { OLLAMA_FLASH_ATTENTION: "1" },
                               //   "llama.cpp": { LLAMA_ARG_FLASH_ATTN: "1" } }
-  source?: string;            // citation for the option's existence/behaviour
+  source?: string;            // citation: an http(s) URL, an existing repo path,
+                              // or prose with no path component
 }
 ```
 
@@ -65,9 +67,11 @@ via `EnvironmentFile=`. Installing it needs root, so the `sudo cp` /
 
 | Tier | Meaning | Requirements |
 |---|---|---|
-| **A** | Measured on **this** host | Requires the M1 benchmark; not used in M0 |
+| **A** | Measured on **this** host, CI excludes zero | Produced by the benchmark/calibration path; never written into the static registry |
+| **A−** | Measured, single session | Direction consistent; magnitude uncertain; not combined |
 | **B** | Labelled estimate with a **cited method** | Numeric `estimate` **and** `method` |
 | **C** | Qualitative (direction only) | No number; `method` optional |
+| **N** | Measured **null** | No change beyond the interval; persisted so it is not re-claimed |
 
 **Tier B/C must never masquerade as tier A.** A combined estimate is only shown
 once every contributor is trustworthy.
@@ -102,19 +106,28 @@ is unknown. Where only measurement can be trusted, the tool must say so.
 
 ## Validation
 
-`validateRegistry()` (and the test suite) enforces:
+`validateRegistry()` (and the test suite, and the CI step
+`npm run validate:registry`) enforces:
 
-- every `requires` / `conflictsWith` / `synergizesWith` id exists;
+- ids are unique;
+- every `requires` / `conflictsWith` / `synergizesWith` id exists, with no
+  self-reference and no `requires` cycle;
 - tier B has both an `estimate` and a `method`;
-- no option conflicts with itself;
+- `combine`, when present, is one of the allowed models;
+- `applyOp`, when present, is an allow-listed op, and `env` and `applyOp: "env"`
+  appear together (never one without the other);
+- environment variable names match `^[A-Z_][A-Z0-9_]*$`, target names match
+  `^[a-zA-Z0-9._-]+$`, and values contain no newline, NUL, or Ansible/Jinja
+  template markers;
+- `source`, when path-like, resolves to a real file (or is an http(s) URL);
 - an `exclusiveGroup` has ≥ 2 members.
 
-Run `npm run build && npm test` after editing the registry.
+Run `npm run build && npm run validate:registry && npm test` after editing the
+registry.
 
-## Selection (planned, M1)
+## Selection
 
-Given the user's selections and the host's resource budget, the planner should
-maximise a **synergy-first, stackable, non-conflicting** set (a
-multiple-choice-knapsack with precedence and a pairwise synergy bonus),
-surfacing **exclusive choices** for the user to pick one — and reporting the
-**combined, honest** estimate rather than a naive sum.
+Given the user's selections and the host's resource budget, the planner
+maximises a **synergy-first, stackable, non-conflicting** set, surfacing
+**exclusive choices** for the user to pick one — and reporting the **combined,
+honest** estimate rather than a naive sum.

@@ -1,27 +1,18 @@
 /**
  * Core types for the AI host optimizer.
  *
- * This is the M0 (read-only) schema: it describes what the tool can *report*.
- * Nothing here applies changes; the applier arrives in M1 behind explicit consent.
+ * Describes what the tool can *report* and (behind explicit consent) *apply*.
+ * The schema is the contract shared by the profiler, planner, applier and the
+ * registry, which is the single source of truth for every output.
  */
+
+import type { ApplyOpId } from "./applyops.js";
+import type { SystemRole } from "./roles.js";
+
+export type { SystemRole };
 
 /** Platform a capability applies to. */
 export type Platform = "linux" | "macos" | "windows";
-
-/**
- * The system's role, supplied by the user before profiling (D-036).
- * The role gates applicability: a container cannot tune the host kernel, and a
- * cluster node should be advisory-only.
- */
-export type SystemRole =
-  | "workstation"
-  | "laptop"
-  | "server"
-  | "vm-host"
-  | "container"
-  | "sandbox"
-  | "cluster-node"
-  | "ci-runner";
 
 /** Risk level of an option. */
 export type Risk = "low" | "medium" | "high";
@@ -34,10 +25,14 @@ export type Reversibility =
 
 /**
  * Confidence tier for an improvement estimate (honesty contract).
- * A = measured on this host; B = labelled estimate with a cited method;
- * C = qualitative only. B/C must never masquerade as A.
+ *   A  = measured on this host, CI-significant and reproduced;
+ *   A- = measured on this host, single session / direction consistent;
+ *   B  = labelled estimate with a cited method;
+ *   C  = qualitative only;
+ *   N  = measured, but no change beyond the interval (a persisted null).
+ * B/C must never masquerade as A, and a single-session A- must not be combined.
  */
-export type ImprovementTier = "A" | "B" | "C";
+export type ImprovementTier = "A" | "A-" | "B" | "C" | "N";
 
 /** How a stackable option's estimate combines with others. */
 export type CombineModel = "additive" | "multiplicative" | "diminishing";
@@ -125,8 +120,8 @@ export interface OptimizationOption {
   /** Prerequisite option ids. */
   requires: string[];
 
-  /** Allow-listed operation id that would implement this (M1+). Absent = advisory only. */
-  applyOp?: string;
+  /** Allow-listed operation id that would implement this. Absent = advisory only. */
+  applyOp?: ApplyOpId;
 
   /**
    * Environment variables this option contributes to a managed runtime
@@ -178,6 +173,28 @@ export interface NvidiaStack {
   isDgx?: boolean;
 }
 
+/**
+ * Execution context that changes what is *available* (as opposed to what
+ * exists): container/cgroup limits, virtualisation, and GPU visibility.
+ */
+export interface HostContext {
+  /** Container runtime, when running inside one. */
+  container?: "docker" | "podman" | "kubernetes" | "unknown";
+  /** True under WSL. */
+  wsl?: boolean;
+  /** Virtualisation detected (hypervisor/VM), when known. */
+  virtualised?: boolean;
+  /** cgroup v1/v2 resource limits, when present. */
+  cgroup?: {
+    memoryLimitMiB?: number;
+    cpuQuotaCores?: number;
+  };
+  /** GPU identifiers the runtime is allowed to see (CUDA/NVIDIA_VISIBLE_DEVICES). */
+  visibleGpus?: string[];
+  /** Number of NUMA nodes detected (Linux). */
+  numaNodes?: number;
+}
+
 /** The result of profiling a host. Read-only. */
 export interface HostProfile {
   timestamp: string;
@@ -207,6 +224,8 @@ export interface HostProfile {
   gpu?: GpuInfo[];
   nvidia?: NvidiaStack;
   cluster?: ClusterInfo;
+  /** Container/cgroup/virtualisation/visibility context. */
+  context?: HostContext;
   disk?: {
     mount: string;
     freeMiB?: number;

@@ -141,15 +141,15 @@ Add to your MCP client (e.g. Claude Desktop):
 }
 ```
 
-Tools exposed:
+Tools exposed (all **read-only**, returning structured data plus a text fallback):
 
 | Tool | Purpose |
 |---|---|
-| `profile` | Read-only host profile (OS, CPU, memory, GPU, detected tooling) |
-| `checklist` | Optimization options with estimated improvement + resource footprint |
+| `profile` | Read-only host profile (OS, CPU, memory, GPU, context, detected tooling) |
+| `checklist` | Optimization options with estimated improvement, footprint and applicability |
 | `plan` | Conflict-free plan for selected ids, with a combined estimate (uses tier-A calibrations when present) |
-| `benchmark` | Measure local inference rate (decode tokens/s) + the noise floor — tier-A evidence |
-| `validate-registry` | Registry consistency check (development aid) |
+| `recommend` | Auto-select a safe, conflict-free set of applyable options |
+| `benchmark` | Measure local inference (decode/prefill/TTFT/ITL) + the run-to-run interval — tier-A evidence |
 
 Published to the **official MCP Registry** as
 `io.github.williamdoring-prog/ai-host-optimizer` (see `server.json`).
@@ -158,41 +158,54 @@ Published to the **official MCP Registry** as
 
 Every estimate carries a confidence tier:
 
-- **A — measured** on your host (via `--benchmark` / `--calibrate`).
+- **A — measured** on your host, CI excludes zero (via `--benchmark` / `--calibrate`).
+- **A− — measured**, single session: direction consistent, magnitude uncertain.
 - **B — labelled estimate** with a cited method.
 - **C — qualitative** (direction only, no number).
+- **N — measured null**: no change beyond the interval, persisted so it is not re-claimed.
 
-Tier B/C estimates are **never** presented as measurements. A combined estimate is
-only shown once its inputs are trustworthy (see the project plan).
+Tier B/C estimates are **never** presented as measurements, and a combined estimate
+is **withheld** when a contributor is single-session A−.
 
 **Calibration is honest about noise.** `--benchmark` takes several samples and
-reports their spread; `--calibrate` compares before/after and only promotes an
-option to tier A when the change **exceeds the host's own noise floor** (the
-combined run-to-run range). A null result is reported as a null result and records
-nothing — a small difference inside the noise is not claimed as a win. Use
-`--samples <n>` to lower the noise floor when you need to detect a small effect.
+reports **IQR/MAD plus a bootstrap confidence interval**; `--calibrate` compares
+before/after and only promotes an option to tier A when the CI **excludes zero**.
+A null result is reported as a null result (tier N) — a difference inside the
+interval is not claimed as a win. Use `--samples <n>` to tighten the interval.
 
 ## What the benchmark measures
 
-`--benchmark` measures **decode tokens/second** (and the prefill rate) by calling
-the local runtime's HTTP API (`/api/generate` with `stream: false`), which returns
-exact token counts and durations rather than a wall-clock guess. It takes several
-samples, discards a warm-up model load, and reports the **median** plus the
-run-to-run **spread**.
+`--benchmark` calls the local runtime's HTTP API (`/api/generate` with
+`stream: false`), which returns exact token counts and durations rather than a
+wall-clock guess. It fixes and **records** the parameters (`seed`,
+`temperature`, `num_ctx`, `num_batch`, `num_predict`) and the model digest, takes
+several samples after a warm-up, and reports the **median** with a bootstrap
+confidence interval.
 
-That spread is the whole point. Inference timing on a desktop is noisy — on a test
-host the spread was ±7% run-to-run, so a single before/after comparison can show a
-"15% improvement" that is pure noise. So `--calibrate` refuses to claim a change
-smaller than the **combined** spread of the two measurements, and prints a null
-result as a null result:
+Separate **profiles** measure separate regimes, because decode is
+memory-bandwidth-bound and prefill is compute-bound:
+
+| Profile | Measures |
+|---|---|
+| `decode` (default) | decode tokens/second — the headline |
+| `prefill` | a long-prompt prefill run (TTFT regime) |
+| `throughput` | aggregate rate under concurrent requests |
+| `load` | cold model-load latency |
+
+It also reports **TTFT**, **inter-token latency**, a **prefix-cache hit rate**
+(when the runtime exposes it) and **VRAM** used.
+
+That interval is the whole point. Inference timing on a desktop is noisy, so a
+single before/after comparison can show a "15% improvement" that is pure noise.
+`--calibrate` refuses to claim a change whose bootstrap CI straddles zero, and
+prints a null result as a null result:
 
 ```
   baseline: qwen2.5-coder:14b, 10.29 tok/s, 2638.9 ms, 5549 MiB free
   current : qwen2.5-coder:14b, 10.16 tok/s, 2860.5 ms, 5541 MiB free
   noise floor: ±13.9%
 
-No significant change: decode tokens/s -1.3% is within the ±13.9% noise floor
-of this host.
+No significant change: decode tokens/s -1.3% is within the interval of this host.
 Nothing recorded — a null result is not evidence of an improvement.
 ```
 
@@ -214,6 +227,40 @@ claims a win.
 - **Role-aware**: a `container` cannot tune the host kernel; a `cluster-node` is
   **advisory-only**.
 
+## Requirements
+
+- **Node.js ≥ 20.**
+- No native dependencies (2 runtime deps: the MCP SDK and zod).
+- Optional: a local runtime on **loopback** (Ollama at `http://127.0.0.1:11434`
+  by default) to get tier-A measurements. The tool never pulls a model for you.
+
+## Automated vs advisory
+
+Each option is one or the other, and the CLI/MCP tell you which:
+
+| | Automated (`applyOp`) | Advisory |
+|---|---|---|
+| Listed as | `[applyable]` | `[advisory]` |
+| `--apply` | writes managed env / a systemd drop-in | makes **no** change |
+| Undo | `--revert` | n/a |
+
+## Troubleshooting
+
+- **It prompted me for a role.** Only the bare `ai-host-optimizer` (no command)
+  prompts. Pass `--role <role>`, or run a command such as `--recommend`.
+- **`--json` / `--recommend` / `--doctor` / `--list`.** New in this release — see
+  `--help`. `--doctor` checks Node, the managed dir, runtime reachability and the
+  saved baseline.
+- **My variables don't take effect.** The applier writes files into the managed
+  directory; you must `source <managed-dir>/activate.sh` (bash/zsh) or install the
+  printed systemd drop-in and restart Ollama.
+- **`--benchmark` says no model.** Install one yourself (`ollama pull …`); the
+  tool deliberately never pulls implicitly.
+- **"Refusing to apply: … advisory only."** You are on `cluster-node`/`ci-runner`.
+  Use a non-advisory role, or pass `--force-advisory` deliberately.
+- **A remote `OLLAMA_HOST` is refused.** Only loopback is allowed by default; set
+  `AIHO_ALLOW_REMOTE_RUNTIME=1` if you truly intend a remote runtime.
+
 ## Roadmap
 
 - **M0** — read-only profiler, registry, checklist, CLI + MCP. ✅
@@ -226,8 +273,16 @@ claims a win.
   applyable. ✅
 - **M2** — accessory generation (Ansible/Dockerfile/checklist). ✅ *(generation)*
 - **M2b** — distribution: official MCP Registry entry **live**
-  (`io.github.williamdoring-prog/ai-host-optimizer@1.2.0`) + CI publish workflow;
+  (`io.github.williamdoring-prog/ai-host-optimizer`) + CI publish workflow;
   directory listings next. 🚧
+- **Hardening (P0)** — enforced path containment, sink-aware value encoding,
+  typed apply ops, atomic/union state with backups and restore-on-revert,
+  advisory-role refusal (`--force-advisory` to override), registry corrections
+  (two options moved to advisory → **9 applyable**), and a CI registry gate. ✅
+- **P1** — engine facade + shared render layer, structured MCP outputs
+  (`outputSchema`/`structuredContent`), CLI `--recommend`/`--json`/`--doctor`/
+  `--list`, robust benchmark statistics (IQR/MAD + bootstrap CI, fixed params,
+  workload profiles), tier A/A−/B/C/N, and container/cgroup/WSL/NUMA detection. ✅
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation

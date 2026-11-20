@@ -4,38 +4,41 @@
  * Interfaces (D-030):
  *   ai-host-optimizer                 interactive prompt
  *   ai-host-optimizer --cli           terminal report (read-only)
- *   ai-host-optimizer --browser       browser UI   (M4 — not yet)
- *   ai-host-optimizer --desktop       desktop UI   (M4 — not yet)
  *   ai-host-optimizer --mcp           MCP stdio server
+ *   ai-host-optimizer --browser/--desktop   (not yet)
  *
  * Commands:
- *   --plan                            show a plan for --select
+ *   --list                            list options (read-only)
+ *   --recommend                       auto-select a safe conflict-free set
+ *   --plan --select <ids>             show a plan
  *   --apply [--yes]                   apply the plan (dry-run unless --yes)
  *   --revert                          undo the last apply
  *   --benchmark [--save-baseline]     measure the host (tier A)
+ *   --calibrate --select <ids>        record a MEASURED delta for options
+ *   --doctor                          diagnose the environment
  *   --generate ansible|dockerfile|checklist
  *
- * Role (D-036): --role <role>, or an interactive prompt on a TTY.
+ * Global: --json for machine-readable output; --role <role>; --force-advisory.
+ *
+ * All orchestration goes through the engine facade (`src/core/engine.ts`), so
+ * consent, advisory-role refusal and containment are enforced in one place.
  */
 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import { profileHost } from "../core/profiler.js";
-import { buildChecklist, validateRegistry } from "../core/checklist.js";
+import { createEngine, type Engine } from "../core/engine.js";
 import { OPTIONS } from "../registry/options.js";
 import { runMcpServer, VERSION } from "../mcp/server.js";
 import { ROLES, ROLE_DESCRIPTORS } from "../core/roles.js";
 import type { SystemRole } from "../core/types.js";
-import { buildPlan } from "../core/plan.js";
-import { applyPlan, buildApplyPlan, managedDir, revert } from "../core/applier.js";
-import { compare, loadBaseline, runBenchmark, saveBaseline } from "../core/benchmark.js";
-import { loadCalibrations, recordCalibration } from "../core/calibration.js";
-import {
-  generateAnsible,
-  generateChecklistMarkdown,
-  generateDockerfile,
-} from "../core/accessories.js";
+import { managedDir } from "../core/paths.js";
+import { compare, loadBaseline, type BenchmarkProfileId } from "../core/benchmark.js";
+import { loadCalibrations } from "../core/calibration.js";
+import { renderChecklist, applyabilityLabel } from "../render/checklist.js";
+import { renderPlan } from "../render/plan.js";
 
 export { ROLES };
 
@@ -47,6 +50,10 @@ export interface CliArgs {
   help?: boolean;
   version?: boolean;
   role?: SystemRole;
+  list?: boolean;
+  recommend?: boolean;
+  doctor?: boolean;
+  json?: boolean;
   plan?: boolean;
   apply?: boolean;
   revert?: boolean;
@@ -54,9 +61,11 @@ export interface CliArgs {
   calibrate?: boolean;
   saveBaseline?: boolean;
   samples?: number;
+  profile?: string;
   generate?: string;
   select?: string[];
   yes?: boolean;
+  forceAdvisory?: boolean;
 }
 
 function isRole(value: string): value is SystemRole {
@@ -84,6 +93,18 @@ export function parseArgs(argv: string[]): CliArgs {
       case "--mcp":
         args.mcp = true;
         break;
+      case "--list":
+        args.list = true;
+        break;
+      case "--recommend":
+        args.recommend = true;
+        break;
+      case "--doctor":
+        args.doctor = true;
+        break;
+      case "--json":
+        args.json = true;
+        break;
       case "--plan":
         args.plan = true;
         break;
@@ -108,9 +129,18 @@ export function parseArgs(argv: string[]): CliArgs {
         i++;
         break;
       }
+      case "--profile": {
+        const value = argv[i + 1];
+        if (value) args.profile = value;
+        i++;
+        break;
+      }
       case "--yes":
       case "-y":
         args.yes = true;
+        break;
+      case "--force-advisory":
+        args.forceAdvisory = true;
         break;
       case "--role": {
         const value = argv[i + 1];
@@ -150,22 +180,28 @@ Profile a host, plan AI-model optimizations, and (with consent) apply them.
 Interfaces:
   ai-host-optimizer                 interactive prompt
   ai-host-optimizer --cli           terminal report (read-only)
+  ai-host-optimizer --mcp           run as an MCP stdio server
   ai-host-optimizer --browser       browser UI (not yet implemented)
   ai-host-optimizer --desktop       desktop UI (not yet implemented)
-  ai-host-optimizer --mcp           run as an MCP stdio server
 
 Commands:
+  --list                            list every option (read-only)
+  --recommend                       auto-select a safe, conflict-free set
   --plan                            show a plan for --select <ids>
   --apply [--yes]                   apply the plan (DRY-RUN unless --yes)
   --revert                          undo the last apply
   --benchmark [--save-baseline]     measure the host (tier A)
-  --calibrate --select <ids>        record a MEASURED (tier A) delta for options
+  --calibrate --select <ids>        record a MEASURED (tier A/A-/N) delta
+  --doctor                          diagnose Node, managed dir, runtime, baseline
   --generate <kind>                 ansible | dockerfile | checklist
   --samples <n>                     samples per measurement (default 3, max 50)
+  --profile <id>                    decode | prefill | throughput | load
 
 Options:
-  --select <id,id,...>              option ids (see --cli output)
+  --select <id,id,...>              option ids (see --list)
   --role <role>                     set the system role (see below)
+  --json                            emit machine-readable JSON where applicable
+  --force-advisory                  override the refusal to apply in an advisory role
   --help / --version
 
 Roles:
@@ -175,6 +211,10 @@ Safety: applying writes ONLY into the managed directory
   ${managedDir()}
 and is fully reversible with --revert.
 `;
+
+function printJson(value: unknown): void {
+  stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
 
 /** Ask the user for the system role. */
 export async function promptRole(): Promise<SystemRole | undefined> {
@@ -193,141 +233,106 @@ export async function promptRole(): Promise<SystemRole | undefined> {
   }
 }
 
-/** The terminal report: profile + checklist, read-only. */
-export async function runCli(role?: SystemRole): Promise<void> {
-  const profile = await profileHost(role);
-  const items = buildChecklist(profile, OPTIONS);
-
-  stdout.write("Host profile (read-only)\n");
-  if (profile.role) stdout.write(`  role     : ${profile.role}\n`);
-  stdout.write(
-    `  platform : ${profile.platform}${profile.os.distro ? ` (${profile.os.distro})` : ""} — ${profile.os.arch}\n`,
-  );
-  if (profile.os.isDgxOs) stdout.write(`  dgx      : DGX OS detected\n`);
-  stdout.write(`  cpu      : ${profile.cpu.model} (${profile.cpu.cores} cores)\n`);
-  stdout.write(
-    `  memory   : ${Math.round(profile.memory.totalMiB / 1024)} GiB total, ${Math.round(
-      profile.memory.freeMiB / 1024,
-    )} GiB free${profile.memory.unified ? " (unified CPU/GPU)" : ""}\n`,
-  );
-  if (profile.gpu?.length) {
-    for (const g of profile.gpu) {
-      const mem = g.unifiedMemory
-        ? "unified memory"
-        : g.vramMiB
-          ? `${g.vramMiB} MiB VRAM`
-          : "memory unknown";
-      stdout.write(`  gpu      : ${g.vendor} ${g.name} (${mem})\n`);
-    }
-  }
-  if (profile.nvidia) {
-    const parts: string[] = [];
-    if (profile.nvidia.driver) parts.push(`driver ${profile.nvidia.driver}`);
-    if (profile.nvidia.cuda) parts.push(`CUDA ${profile.nvidia.cuda}`);
-    if (parts.length) stdout.write(`  nvidia   : ${parts.join(", ")}\n`);
-  }
-  if (profile.cluster) {
-    const c = profile.cluster;
-    const bits: string[] = [];
-    if (c.scheduler && c.scheduler !== "none") bits.push(`scheduler ${c.scheduler}`);
-    if (c.gpuCount !== undefined) bits.push(`${c.gpuCount} GPU(s)`);
-    if (c.nvlink) bits.push("NVLink");
-    if (c.mig) bits.push("MIG");
-    if (c.interconnects.length) bits.push(`fabric ${c.interconnects.join(", ")}`);
-    if (bits.length) stdout.write(`  cluster  : ${bits.join(", ")}\n`);
-  }
-  const detected = profile.tooling.filter((t) => t.detected);
-  stdout.write(
-    `  tooling  : ${detected.length ? detected.map((t) => t.name).join(", ") : "none detected"}\n`,
-  );
-  stdout.write("\n");
-
-  const roleNote = items.find((i) => i.roleNote)?.roleNote;
-  const advisory = items.some((i) => i.advisoryOnly);
-  if (roleNote) stdout.write(`NOTE: ${roleNote}\n`);
-  if (advisory) stdout.write("NOTE: this role is ADVISORY ONLY — the tool will not apply changes here.\n");
-  if (roleNote || advisory) stdout.write("\n");
-
-  stdout.write("Optimization checklist (read-only)\n\n");
-  for (const item of items) {
-    const o = item.option;
-    const est =
-      o.expectedImprovement.estimate !== undefined
-        ? `${Math.round(o.expectedImprovement.estimate * 100)}%`
-        : "qualitative";
-    const mark = item.applicable ? "[ ]" : "[x] n/a";
-    stdout.write(`${mark} ${o.name}  (${o.id})\n`);
-    stdout.write(
-      `      improves ${o.expectedImprovement.metric}: ${est} (tier ${o.expectedImprovement.tier})\n`,
+/** --list (read-only; no profiling). */
+export function runList(json = false): void {
+  if (json) {
+    printJson(
+      OPTIONS.map((o) => ({
+        id: o.id,
+        name: o.name,
+        applyability: o.applyOp ? "applyable" : "advisory",
+        category: o.category,
+        risk: o.risk,
+        tier: o.expectedImprovement.tier,
+        platforms: o.platforms,
+      })),
     );
-    stdout.write(`      risk ${o.risk}; ${o.reversibility}; privilege ${o.requiresPrivilege}\n`);
-    if (o.exclusiveGroup) stdout.write(`      one-of group: ${o.exclusiveGroup}\n`);
-    if (o.inclusiveGroup) stdout.write(`      stackable: ${o.inclusiveGroup}\n`);
-    if (o.conflictsWith.length) stdout.write(`      conflicts: ${o.conflictsWith.join(", ")}\n`);
-    if (o.synergizesWith.length) stdout.write(`      synergy: ${o.synergizesWith.join(", ")}\n`);
-    if (o.requires.length) stdout.write(`      requires: ${o.requires.join(", ")}\n`);
-    if (!item.applicable && item.reason) stdout.write(`      n/a: ${item.reason}\n`);
-    stdout.write("\n");
+    return;
   }
+  stdout.write(`Option registry (${OPTIONS.length} options)\n\n`);
+  for (const o of OPTIONS) {
+    stdout.write(`  ${applyabilityLabel(o)} ${o.id}\n`);
+    stdout.write(`      ${o.name} — ${o.category}, risk ${o.risk}\n`);
+  }
+}
 
-  const problems = validateRegistry(OPTIONS);
-  if (problems.length) {
-    stdout.write(`WARNING: registry issues:\n- ${problems.join("\n- ")}\n`);
+/** The terminal report: profile + checklist, read-only. */
+export async function runCli(engine: Engine, role?: SystemRole, json = false): Promise<void> {
+  const profile = await engine.profile(role);
+  const items = await engine.checklist(role);
+  if (json) {
+    printJson({ profile, checklist: items });
+    return;
   }
-  stdout.write("Next: --plan --select <ids>   then   --apply --select <ids> [--yes]\n");
+  stdout.write(`${renderChecklist(profile, items)}\n`);
+  stdout.write("Next: --recommend   or   --plan --select <ids>   then   --apply --select <ids> [--yes]\n");
+}
+
+/** --recommend */
+export async function runRecommend(engine: Engine, role: SystemRole, json = false): Promise<void> {
+  const plan = await engine.recommend(role);
+  if (json) {
+    printJson(plan);
+    return;
+  }
+  stdout.write(`${renderPlan(plan, `Recommended plan for the "${role}" role`)}\n\n`);
+  if (plan.steps.length) {
+    stdout.write(`Apply with: --apply --select ${plan.steps.map((s) => s.option.id).join(",")} [--yes]\n`);
+  } else {
+    stdout.write("No safe, applyable options were found for this host.\n");
+  }
 }
 
 /** --plan */
-export async function runPlan(role: SystemRole, select: string[]): Promise<void> {
-  const profile = await profileHost(role);
-  const calibrations = await loadCalibrations();
-  const plan = buildPlan(select, profile, OPTIONS, calibrations);
-
-  stdout.write(`Plan for ${select.length} requested option(s)\n\n`);
-  if (plan.steps.length === 0) stdout.write("  (no applicable options)\n");
-  for (const step of plan.steps) {
-    const o = step.option;
-    const est =
-      o.expectedImprovement.estimate !== undefined
-        ? ` ${Math.round(o.expectedImprovement.estimate * 100)}%`
-        : "";
-    const measured = o.expectedImprovement.tier === "A" ? " [measured]" : "";
-    stdout.write(
-      `  + ${o.name} (${o.id})${step.implicit ? " [prerequisite]" : ""}${measured}${est}\n`,
-    );
+export async function runPlan(
+  engine: Engine,
+  role: SystemRole,
+  select: string[],
+  json = false,
+): Promise<void> {
+  const plan = await engine.plan(select, role);
+  if (json) {
+    printJson(plan);
+    return;
   }
-  if (plan.rejections.length) {
-    stdout.write("\nRejected:\n");
-    for (const r of plan.rejections) stdout.write(`  - ${r.id}: ${r.reason}\n`);
-  }
-  if (plan.combined) {
-    stdout.write(
-      `\nCombined estimate: ${Math.round(plan.combined.estimate * 100)}% on "${plan.combined.metric}" (tier ${plan.combined.tier})\n`,
-    );
-    stdout.write(`  method: ${plan.combined.method}\n`);
-  }
-  for (const n of plan.notes) stdout.write(`  note: ${n}\n`);
+  stdout.write(`${renderPlan(plan, `Plan for ${select.length} requested option(s)`)}\n`);
   stdout.write("\nApply with: --apply --select <ids> [--yes]\n");
 }
 
 /** --apply */
-export async function runApply(role: SystemRole, select: string[], yes: boolean): Promise<void> {
-  const profile = await profileHost(role);
-  const calibrations = await loadCalibrations();
-  const plan = buildPlan(select, profile, OPTIONS, calibrations);
-
+export async function runApply(
+  engine: Engine,
+  role: SystemRole,
+  select: string[],
+  yes: boolean,
+  forceAdvisory = false,
+): Promise<void> {
+  if (select.length === 0) {
+    stdout.write("Nothing selected. Use --recommend, or --plan --select <ids>.\n");
+    return;
+  }
+  const plan = await engine.plan(select, role);
   if (plan.steps.length === 0) {
     stdout.write("Nothing to apply (no applicable options).\n");
-    if (plan.rejections.length) {
-      for (const r of plan.rejections) stdout.write(`  - ${r.id}: ${r.reason}\n`);
-    }
+    for (const r of plan.rejections) stdout.write(`  - ${r.id}: ${r.reason}\n`);
     return;
   }
 
-  const ids = plan.steps.map((s) => s.option.id);
-  const applyPlanResult = buildApplyPlan(ids, OPTIONS);
+  let outcome;
+  try {
+    outcome = await engine.apply(plan, {
+      consent: yes,
+      dryRun: !yes,
+      forceAdvisory,
+      role,
+    });
+  } catch (err) {
+    stdout.write(`${(err as Error).message}\n`);
+    return;
+  }
 
-  if (applyPlanResult.files.length === 0) {
+  const { plan: applyPlan, result } = outcome;
+  if (applyPlan.files.length === 0) {
     stdout.write(
       "The selected options have no automated apply operation in this version.\n" +
         "They remain advisory (see --plan). No changes made.\n",
@@ -335,79 +340,93 @@ export async function runApply(role: SystemRole, select: string[], yes: boolean)
     return;
   }
 
-  stdout.write(`Apply plan (${applyPlanResult.optionIds.length} option(s)):\n`);
-  for (const id of applyPlanResult.optionIds) stdout.write(`  + ${id}\n`);
-  if (Object.keys(applyPlanResult.envByTarget).length > 0) {
-    stdout.write(`\nEnvironment to be written (by target runtime):\n`);
-    for (const target of Object.keys(applyPlanResult.envByTarget).sort()) {
+  stdout.write(`Apply plan (${applyPlan.optionIds.length} option(s)):\n`);
+  for (const id of applyPlan.optionIds) stdout.write(`  + ${id}\n`);
+  if (Object.keys(applyPlan.envByTarget).length > 0) {
+    stdout.write("\nEnvironment to be written (by target runtime):\n");
+    for (const target of Object.keys(applyPlan.envByTarget).sort()) {
       stdout.write(`  [${target}]\n`);
-      for (const [k, v] of Object.entries(applyPlanResult.envByTarget[target]!).sort()) {
+      for (const [k, v] of Object.entries(applyPlan.envByTarget[target]!).sort()) {
         stdout.write(`    ${k}=${v}\n`);
       }
     }
   }
-  stdout.write(`\nManaged directory: ${managedDir()}\n`);
-  stdout.write(`Files:\n`);
-  for (const f of applyPlanResult.files) stdout.write(`  ${f.path}\n`);
-
-  const dryRun = !yes;
-  const result = await applyPlan(applyPlanResult, dryRun);
+  stdout.write(`\nManaged directory: ${managedDir()}\nFiles:\n`);
+  for (const f of applyPlan.files) stdout.write(`  ${f.path}\n`);
 
   stdout.write(
     `\n${result.dryRun ? "DRY-RUN — nothing written." : "Applied."} ` +
       `(${result.written.length} file(s)${result.dryRun ? " would be written" : " written"})\n`,
   );
-
-  if (applyPlanResult.notes.length > 0) {
+  if (applyPlan.notes.length > 0) {
     stdout.write("\nManual steps (this tool never escalates privilege):\n");
-    for (const n of applyPlanResult.notes) stdout.write(`${n}\n`);
+    for (const n of applyPlan.notes) stdout.write(`${n}\n`);
   }
-
   if (result.dryRun) {
     stdout.write("\nRe-run with --yes to apply. Undo any time with --revert.\n");
   } else {
     stdout.write(
-      "\nActivate (bash/zsh):  source " +
-        `${managedDir()}/activate.sh\n` +
-        "Revert:  --revert\n",
+      `\nActivate (bash/zsh):  source ${managedDir()}/activate.sh\nRevert:  --revert\n`,
     );
   }
 }
 
 /** --revert */
-export async function runRevert(): Promise<void> {
-  const result = await revert();
+export async function runRevert(engine: Engine): Promise<void> {
+  const result = await engine.revert();
   if (result.removed.length === 0) {
     stdout.write("Nothing to revert (no recorded apply).\n");
     return;
   }
-  stdout.write(`Reverted. Removed:\n`);
+  stdout.write("Reverted. Removed:\n");
   for (const f of result.removed) stdout.write(`  ${f}\n`);
 }
 
+function fmt(n: number | undefined, digits = 2): string {
+  return n === undefined ? "n/a" : n.toFixed(digits);
+}
+
 /** --benchmark */
-export async function runBenchmarkCmd(saveAsBaseline: boolean, samples?: number): Promise<void> {
+export async function runBenchmarkCmd(engine: Engine, args: CliArgs): Promise<void> {
+  const profile = (args.profile as BenchmarkProfileId | undefined) ?? undefined;
   stdout.write("Running benchmark (tier A where measurable)…\n");
-  const result = await runBenchmark(undefined, samples);
+  const result = await engine.benchmark({
+    samples: args.samples,
+    profile,
+    saveBaseline: args.saveBaseline ?? false,
+  });
+  if (args.json) {
+    printJson(result);
+    return;
+  }
   stdout.write(`  time     : ${result.timestamp}\n`);
-  if (result.model) stdout.write(`  model    : ${result.model}\n`);
-  if (result.tokensPerSec !== undefined) stdout.write(`  decode   : ${result.tokensPerSec} tokens/s\n`);
-  if (result.promptEvalRate !== undefined)
-    stdout.write(`  prefill  : ${result.promptEvalRate} tokens/s\n`);
+  stdout.write(`  profile  : ${result.profile}\n`);
+  if (result.model) stdout.write(`  model    : ${result.model}${result.modelDigest ? ` (${result.modelDigest.slice(0, 12)})` : ""}\n`);
+  if (result.tokensPerSec !== undefined) stdout.write(`  decode   : ${result.tokensPerSec} tokens/s (median)\n`);
+  if (result.promptEvalRate !== undefined) stdout.write(`  prefill  : ${result.promptEvalRate} tokens/s\n`);
+  if (result.ttftMs !== undefined) stdout.write(`  ttft     : ${fmt(result.ttftMs, 1)} ms\n`);
+  if (result.interTokenMs !== undefined) stdout.write(`  itl      : ${fmt(result.interTokenMs, 2)} ms/token\n`);
+  if (result.prefixHitRate !== undefined) stdout.write(`  prefix   : ${(result.prefixHitRate * 100).toFixed(1)}% cache hit\n`);
+  if (result.vramMiB !== undefined) stdout.write(`  vram     : ${result.vramMiB} MiB used\n`);
   if (result.loadMs !== undefined) stdout.write(`  load     : ${result.loadMs} ms\n`);
   if (result.totalMs !== undefined) stdout.write(`  latency  : ${result.totalMs} ms\n`);
   if (result.sampleCount !== undefined) stdout.write(`  samples  : ${result.sampleCount}\n`);
-  if (result.spread !== undefined)
-    stdout.write(`  spread   : ±${(result.spread * 100).toFixed(1)}% (noise floor)\n`);
+  if (result.dispersion) {
+    stdout.write(
+      `  spread   : IQR ${(result.dispersion.iqr ?? 0).toFixed(3)}, MAD ${(result.dispersion.mad ?? 0).toFixed(3)}\n`,
+    );
+  }
+  if (result.ci) {
+    stdout.write(`  ci (95%) : [${fmt(result.ci.low)}, ${fmt(result.ci.high)}] tokens/s\n`);
+  }
+  stdout.write(`  params   : ${JSON.stringify(result.params)}\n`);
   stdout.write(`  free mem : ${result.memFreeMiB} MiB\n`);
   stdout.write(`  note     : ${result.note}\n`);
 
-  if (saveAsBaseline) {
-    const path = await saveBaseline(result);
-    stdout.write(`\nBaseline saved: ${path}\n`);
+  if (args.saveBaseline) {
+    stdout.write(`\nBaseline saved (${result.profile} profile).\n`);
     return;
   }
-
   const baseline = await loadBaseline();
   if (baseline) {
     const cmp = compare(baseline, result);
@@ -418,135 +437,116 @@ export async function runBenchmarkCmd(saveAsBaseline: boolean, samples?: number)
     if (cmp.latencyDelta !== undefined) {
       stdout.write(`  latency : ${(cmp.latencyDelta * 100).toFixed(1)}% (negative = faster)\n`);
     }
-    stdout.write(`  noise   : ±${(cmp.noiseFloor * 100).toFixed(1)}%\n`);
-    stdout.write(
-      `  verdict : ${
-        cmp.significant
-          ? "change exceeds the noise floor (significant)"
-          : "within the noise floor (not significant)"
-      }\n`,
-    );
+    if (cmp.ci) {
+      stdout.write(`  ci (95%) : [${fmt(cmp.ci.low)}, ${fmt(cmp.ci.high)}]\n`);
+    } else {
+      stdout.write(`  noise   : ±${(cmp.noiseFloor * 100).toFixed(1)}%\n`);
+    }
+    stdout.write(`  verdict : ${cmp.significant ? "significant (CI excludes zero)" : "not significant"}\n`);
     stdout.write(`  free mem: ${cmp.memFreeDeltaMiB >= 0 ? "+" : ""}${cmp.memFreeDeltaMiB} MiB\n`);
   } else {
     stdout.write("\n(No baseline saved. Run with --save-baseline before applying changes.)\n");
   }
 }
 
-/** Describe a benchmark result on one line. */
-function describeResult(r: { model?: string; tokensPerSec?: number; totalMs?: number; memFreeMiB: number }): string {
-  const bits: string[] = [];
-  if (r.model) bits.push(r.model);
-  if (r.tokensPerSec !== undefined) bits.push(`${r.tokensPerSec} tok/s`);
-  if (r.totalMs !== undefined) bits.push(`${r.totalMs} ms`);
-  bits.push(`${r.memFreeMiB} MiB free`);
-  return bits.join(", ");
-}
-
-/**
- * --calibrate --select <ids>
- * Compares the current measurement to the saved baseline and records a TIER-A
- * calibration for the selected options.
- *
- * Workflow:
- *   1. --benchmark --save-baseline        (before)
- *   2. --apply --select <ids> --yes       (+ restart the runtime so env applies)
- *   3. --calibrate --select <ids>         (after → records the measured delta)
- */
-export async function runCalibrate(select: string[], samples?: number): Promise<void> {
+/** --calibrate --select <ids> */
+export async function runCalibrate(engine: Engine, args: CliArgs): Promise<void> {
+  const select = args.select ?? [];
   if (select.length === 0) {
     stdout.write("Usage: --calibrate --select <ids>\n");
     stdout.write("Run `--benchmark --save-baseline` first, then apply + restart, then calibrate.\n");
     return;
   }
-  const baseline = await loadBaseline();
-  if (!baseline) {
-    stdout.write(
-      "No baseline found.\n" +
-        "  1) --benchmark --save-baseline     (before)\n" +
-        "  2) --apply --select <ids> --yes    (then restart the runtime)\n" +
-        "  3) --calibrate --select <ids>      (after)\n",
-    );
-    return;
-  }
-
   stdout.write("Measuring the current state (tier A)…\n");
-  const current = await runBenchmark(undefined, samples);
-  const cmp = compare(baseline, current);
-
-  stdout.write(`  baseline: ${describeResult(baseline)}\n`);
-  stdout.write(`  current : ${describeResult(current)}\n`);
-
-  const metric = cmp.tokensPerSecDelta !== undefined ? "decode tokens/s" : "total latency";
-  const delta =
-    cmp.tokensPerSecDelta ??
-    (cmp.latencyDelta !== undefined ? -cmp.latencyDelta : undefined);
-
-  if (delta === undefined) {
-    stdout.write(
-      "\nCould not compute a delta (no comparable metric). Ensure Ollama is running with a model.\n",
-    );
+  const report = await engine.calibrate(select, {
+    samples: args.samples,
+    profile: args.profile as BenchmarkProfileId | undefined,
+  });
+  if (args.json) {
+    printJson(report);
     return;
   }
+  if (report.current) {
+    stdout.write(`  current : ${report.current.model ?? "?"} ${fmt(report.current.tokensPerSec)} tok/s\n`);
+  }
+  if (report.comparison) {
+    const cmp = report.comparison;
+    if (cmp.tokensPerSecDelta !== undefined) {
+      stdout.write(`  decode  : ${(cmp.tokensPerSecDelta * 100).toFixed(1)}%\n`);
+    }
+    if (cmp.ci) stdout.write(`  ci (95%) : [${fmt(cmp.ci.low)}, ${fmt(cmp.ci.high)}]\n`);
+    stdout.write(`  verdict : ${cmp.significant ? "significant" : "not significant"}\n`);
+  }
+  stdout.write(`${report.note}\n`);
+  if (report.recorded.length) {
+    stdout.write(`Tier: ${report.recorded[0]!.tier}. Future --plan runs will reflect it.\n`);
+  }
+}
 
-  const noisePct = (cmp.noiseFloor * 100).toFixed(1);
-  stdout.write(`  noise floor: ±${noisePct}%\n`);
+/** --doctor */
+export async function runDoctor(engine: Engine, role: SystemRole, json = false): Promise<void> {
+  const dir = managedDir();
+  const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
 
-  if (!cmp.significant) {
-    stdout.write(
-      `\nNo significant change: ${metric} ${(delta * 100).toFixed(1)}% is within the ` +
-        `±${noisePct}% noise floor of this host.\n` +
-        "Nothing recorded — a null result is not evidence of an improvement.\n" +
-        "Re-run the before/after cycle (or use a larger model) to reduce noise.\n",
-    );
+  checks.push({ name: "node", ok: Number(process.versions.node.split(".")[0]) >= 20, detail: `v${process.versions.node}` });
+  checks.push({ name: "platform", ok: true, detail: `${process.platform}/${process.arch}` });
+
+  // Managed-dir writability.
+  try {
+    await mkdir(dir, { recursive: true });
+    const probe = join(dir, ".doctor-probe");
+    await writeFile(probe, "ok", "utf8");
+    await rm(probe, { force: true });
+    checks.push({ name: "managed-dir", ok: true, detail: `writable: ${dir}` });
+  } catch (err) {
+    checks.push({ name: "managed-dir", ok: false, detail: `${dir}: ${(err as Error).message}` });
+  }
+
+  // Runtime reachability (loopback only).
+  const host = process.env["OLLAMA_HOST"] ?? "http://127.0.0.1:11434";
+  try {
+    const res = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    checks.push({ name: "runtime", ok: res.ok, detail: `${host} responded ${res.status}` });
+  } catch (err) {
+    checks.push({ name: "runtime", ok: false, detail: `${host} unreachable (${(err as Error).name})` });
+  }
+
+  const baseline = await loadBaseline();
+  checks.push({
+    name: "baseline",
+    ok: baseline !== undefined,
+    detail: baseline ? `saved ${baseline.timestamp} (${baseline.profile ?? "decode"})` : "none — run --benchmark --save-baseline",
+  });
+  const calibrations = await loadCalibrations();
+  checks.push({
+    name: "calibrations",
+    ok: true,
+    detail: `${Object.keys(calibrations).length} entr(y/ies)`,
+  });
+
+  if (json) {
+    printJson({ role, managedDir: dir, checks });
     return;
   }
-
-  for (const id of select) {
-    await recordCalibration({
-      optionId: id,
-      metric,
-      delta,
-      noiseFloor: cmp.noiseFloor,
-      significant: true,
-      tier: "A",
-      model: current.model,
-      measuredAt: new Date().toISOString(),
-      samples: current.sampleCount ?? 1,
-      method: `before/after measurement on this host (${metric})`,
-    });
-  }
-
+  stdout.write("Environment diagnostics\n\n");
+  for (const c of checks) stdout.write(`  ${c.ok ? "[ok]  " : "[!!]  "}${c.name.padEnd(14)} ${c.detail}\n`);
   stdout.write(
-    `\nRecorded tier-A calibration for ${select.length} option(s): ${metric} ${(delta * 100).toFixed(1)}% ` +
-      `(beyond the ±${noisePct}% noise floor).\n`,
+    "\nTo make managed env take effect for Ollama on Linux, install the systemd drop-in\n" +
+      "(printed by --apply) and restart: sudo systemctl restart ollama\n",
   );
-  stdout.write("Future `--plan` runs will show these as [measured].\n");
 }
 
 /** --generate */
-export async function runGenerate(kind: string, select: string[]): Promise<void> {
-  const byId = new Map(OPTIONS.map((o) => [o.id, o]));
-  const selected = (select.length ? select : OPTIONS.map((o) => o.id))
-    .map((id) => byId.get(id))
-    .filter((o): o is (typeof OPTIONS)[number] => o !== undefined);
-
-  switch (kind) {
-    case "ansible":
-      stdout.write(generateAnsible(selected));
-      break;
-    case "dockerfile":
-      stdout.write(generateDockerfile(selected));
-      break;
-    case "checklist":
-      stdout.write(generateChecklistMarkdown(selected));
-      break;
-    default:
-      stdout.write(`Unknown generate kind "${kind}". Use: ansible | dockerfile | checklist\n`);
+export function runGenerate(engine: Engine, kind: string, select: string[]): void {
+  if (kind !== "ansible" && kind !== "dockerfile" && kind !== "checklist") {
+    stdout.write(`Unknown generate kind "${kind}". Use: ansible | dockerfile | checklist\n`);
+    return;
   }
+  stdout.write(engine.generate(kind, select));
 }
 
 /** Interactive launcher prompt. */
-export async function runInteractive(role?: SystemRole): Promise<void> {
+export async function runInteractive(engine: Engine, role?: SystemRole): Promise<void> {
   const rl = createInterface({ input: stdin, output: stdout });
   try {
     stdout.write(`ai-host-optimizer v${VERSION}\n\n`);
@@ -558,7 +558,7 @@ export async function runInteractive(role?: SystemRole): Promise<void> {
     const answer = (await rl.question("> ")).trim();
     switch (answer) {
       case "1":
-        await runCli(role);
+        await runCli(engine, role);
         break;
       case "4":
         await runMcpServer();
@@ -572,7 +572,7 @@ export async function runInteractive(role?: SystemRole): Promise<void> {
 }
 
 /** Dispatch based on parsed args. */
-export async function main(argv: string[]): Promise<void> {
+export async function main(argv: string[], engine: Engine = createEngine()): Promise<void> {
   const args = parseArgs(argv);
 
   if (args.help) {
@@ -588,51 +588,65 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
 
-  // Resolve the system role: explicit flag wins; otherwise ask on a TTY.
+  const hasCommand =
+    args.list || args.recommend || args.doctor || args.plan || args.apply || args.revert ||
+    args.benchmark || args.calibrate || args.generate || args.cli;
+
+  // Only prompt for a role when no command was given (keeps scripting non-interactive).
   let role = args.role;
-  if (!role && stdin.isTTY && !args.benchmark && !args.generate) {
-    role = await promptRole();
-  }
+  if (!role && !hasCommand && stdin.isTTY) role = await promptRole();
   if (!role) role = "workstation";
 
+  if (args.list) {
+    runList(args.json);
+    return;
+  }
+  if (args.recommend) {
+    await runRecommend(engine, role, args.json);
+    return;
+  }
+  if (args.doctor) {
+    await runDoctor(engine, role, args.json);
+    return;
+  }
   if (args.plan) {
-    await runPlan(role, args.select ?? []);
+    await runPlan(engine, role, args.select ?? [], args.json);
     return;
   }
   if (args.apply) {
-    await runApply(role, args.select ?? [], args.yes ?? false);
+    await runApply(engine, role, args.select ?? [], args.yes ?? false, args.forceAdvisory ?? false);
     return;
   }
   if (args.revert) {
-    await runRevert();
+    await runRevert(engine);
     return;
   }
   if (args.benchmark) {
-    await runBenchmarkCmd(args.saveBaseline ?? false, args.samples);
+    await runBenchmarkCmd(engine, args);
     return;
   }
   if (args.calibrate) {
-    await runCalibrate(args.select ?? [], args.samples);
+    await runCalibrate(engine, args);
     return;
   }
   if (args.generate) {
-    await runGenerate(args.generate, args.select ?? []);
+    runGenerate(engine, args.generate, args.select ?? []);
     return;
   }
   if (args.cli) {
-    await runCli(role);
+    await runCli(engine, role, args.json);
     return;
   }
   if (args.browser || args.desktop) {
     stdout.write(
-      "The browser and desktop interfaces are not yet implemented (planned for a later milestone).\nUse --cli, --mcp, or a command (--plan/--apply/--benchmark).\n",
+      "The browser and desktop interfaces are not yet implemented (planned for a later milestone).\nUse --cli, --mcp, or a command (--recommend/--plan/--apply/--benchmark).\n",
     );
     return;
   }
 
   if (!stdin.isTTY) {
-    await runCli(role);
+    await runCli(engine, role);
     return;
   }
-  await runInteractive(role);
+  await runInteractive(engine, role);
 }

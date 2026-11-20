@@ -8,7 +8,8 @@
  * Honesty contract: estimates are tier "B" (cited method) or "C" (qualitative).
  * No tier "A" is claimed here — tier A requires on-host measurement (M1+).
  *
- * Sources: see research/mcp/ai-optimization-*.md for the evidence behind each.
+ * Sources: each option carries a `source` citation (a URL or a repository path);
+ * `validateRegistry` fails CI when a path-like citation does not resolve.
  */
 
 import type { OptimizationOption } from "../core/types.js";
@@ -33,13 +34,13 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/ai-optimization-best-practices.md",
+    source: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
   },
   {
     id: "flash-attention",
     name: "Enable Flash Attention",
     description:
-      "Turn on the runtime's Flash Attention path (e.g. llama.cpp `--flash-attn`). A prerequisite for quantized KV cache in some runtimes.",
+      "Turn on the runtime's Flash Attention path (e.g. llama.cpp `--flash-attn`). In current Ollama builds Flash Attention is enabled by default, so treat this mainly as a prerequisite for quantized KV cache in llama.cpp — verify it is active rather than assuming a win.",
     category: "runtime",
     platforms: ["linux", "macos", "windows"],
     requiresPrivilege: false,
@@ -61,7 +62,7 @@ export const OPTIONS: OptimizationOption[] = [
       ollama: { OLLAMA_FLASH_ATTENTION: "1" },
       "llama.cpp": { LLAMA_ARG_FLASH_ATTN: "1" },
     },
-    source: "research/mcp/ai-optimization-packages.md",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "kv-cache-quant-q8",
@@ -91,7 +92,7 @@ export const OPTIONS: OptimizationOption[] = [
       ollama: { OLLAMA_KV_CACHE_TYPE: "q8_0" },
       "llama.cpp": { LLAMA_ARG_CACHE_TYPE_K: "q8_0", LLAMA_ARG_CACHE_TYPE_V: "q8_0" },
     },
-    source: "research/mcp/ai-caching-memory-packages.md",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "kv-cache-quant-q4",
@@ -121,7 +122,7 @@ export const OPTIONS: OptimizationOption[] = [
       ollama: { OLLAMA_KV_CACHE_TYPE: "q4_0" },
       "llama.cpp": { LLAMA_ARG_CACHE_TYPE_K: "q4_0", LLAMA_ARG_CACHE_TYPE_V: "q4_0" },
     },
-    source: "research/mcp/ai-caching-memory-packages.md",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "prefix-caching",
@@ -144,7 +145,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["kv-cache-quant-q8", "keep-alive-preload"],
     requires: [],
-    source: "research/mcp/ai-caching-memory-packages.md",
+    source: "https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html",
   },
   {
     id: "keep-alive-preload",
@@ -169,24 +170,24 @@ export const OPTIONS: OptimizationOption[] = [
     requires: [],
     applyOp: "env",
     env: { ollama: { OLLAMA_KEEP_ALIVE: "30m" } },
-    source: "research/mcp/ai-optimization-best-practices.md",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "ollama-num-parallel",
     name: "Serve parallel requests (Ollama)",
     description:
-      "Allow the Ollama server to handle several requests concurrently (OLLAMA_NUM_PARALLEL). Raises throughput under concurrent load at the cost of memory: each parallel slot needs its own context in the KV cache.",
+      "Allow the Ollama server to handle several requests concurrently (OLLAMA_NUM_PARALLEL). Raises throughput under concurrent load at the cost of memory: each parallel slot needs its own context in the KV cache, so cost scales as NUM_PARALLEL x CONTEXT_LENGTH (not a fixed amount).",
     category: "runtime",
     platforms: ["linux", "macos", "windows"],
     requiresPrivilege: false,
     risk: "low",
     reversibility: "fully-reversible",
-    resourceCost: { ramMiB: 512 },
+    resourceCost: { ramMiB: 1024 },
     expectedImprovement: {
       metric: "concurrent throughput",
       tier: "C",
       method:
-        "Ollama documentation (OLLAMA_NUM_PARALLEL); benefit appears only under concurrent load and scales with available memory.",
+        "Ollama documentation (OLLAMA_NUM_PARALLEL); benefit appears only under concurrent load and memory cost scales with the context length per slot.",
     },
     inclusiveGroup: "throughput-stack",
     combine: "additive",
@@ -195,13 +196,13 @@ export const OPTIONS: OptimizationOption[] = [
     requires: [],
     applyOp: "env",
     env: { ollama: { OLLAMA_NUM_PARALLEL: "4" } },
-    source: "Ollama environment-variable documentation.",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "ollama-max-loaded-models",
-    name: "Keep more models loaded (Ollama)",
+    name: "Tune how many models stay loaded (Ollama)",
     description:
-      "Allow the Ollama server to keep several models resident at once (OLLAMA_MAX_LOADED_MODELS), avoiding reload latency when switching models. Costs memory proportional to the models kept.",
+      "OLLAMA_MAX_LOADED_MODELS controls how many models stay resident at once. Ollama's documented default is 3 x the number of GPUs, so setting a fixed low value (e.g. 2) would REDUCE the default and cause more reloads. Advisory: raise it above the default only if you switch between several models and have memory to spare.",
     category: "runtime",
     platforms: ["linux", "macos", "windows"],
     requiresPrivilege: false,
@@ -212,16 +213,14 @@ export const OPTIONS: OptimizationOption[] = [
       metric: "model-switch latency",
       tier: "C",
       method:
-        "Ollama documentation (OLLAMA_MAX_LOADED_MODELS); benefit depends on how often models are switched.",
+        "Ollama documentation (OLLAMA_MAX_LOADED_MODELS); default is 3 x GPU count, so any applied value must exceed it to help.",
     },
     inclusiveGroup: "throughput-stack",
     combine: "additive",
     conflictsWith: [],
     synergizesWith: ["ollama-num-parallel", "keep-alive-preload"],
     requires: [],
-    applyOp: "env",
-    env: { ollama: { OLLAMA_MAX_LOADED_MODELS: "2" } },
-    source: "Ollama environment-variable documentation.",
+    source: "https://github.com/ollama/ollama/blob/main/docs/faq.md",
   },
   {
     id: "hf-cache-location",
@@ -250,13 +249,13 @@ export const OPTIONS: OptimizationOption[] = [
         HF_HUB_CACHE: "${MANAGED_DIR}/hf/hub",
       },
     },
-    source: "Hugging Face Hub environment-variable documentation.",
+    source: "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
   },
   {
     id: "hf-transfer",
-    name: "Enable fast model downloads (hf_transfer)",
+    name: "Enable fast model downloads (Xet)",
     description:
-      "Use the Rust-based hf_transfer backend for model downloads (HF_HUB_ENABLE_HF_TRANSFER). Much faster on high-bandwidth links. Requires the `hf_transfer` Python package to be installed; downloads resume less gracefully on flaky links.",
+      "Use Hugging Face's Xet-backed transfer backend (HF_XET_HIGH_PERFORMANCE) for faster downloads on high-bandwidth links. Note: the older `hf_transfer` package and HF_HUB_ENABLE_HF_TRANSFER variable are deprecated ('hf_transfer can't be used anymore'); Xet is the successor.",
     category: "storage",
     platforms: ["linux", "macos", "windows"],
     requiresPrivilege: false,
@@ -267,14 +266,14 @@ export const OPTIONS: OptimizationOption[] = [
       metric: "download time",
       tier: "C",
       method:
-        "Hugging Face documentation (HF_HUB_ENABLE_HF_TRANSFER); requires hf_transfer to be installed, benefit scales with bandwidth.",
+        "Hugging Face documentation (HF_XET_HIGH_PERFORMANCE); the deprecated HF_HUB_ENABLE_HF_TRANSFER is not used.",
     },
     conflictsWith: [],
     synergizesWith: ["hf-cache-location"],
     requires: [],
     applyOp: "env",
-    env: { huggingface: { HF_HUB_ENABLE_HF_TRANSFER: "1" } },
-    source: "Hugging Face Hub environment-variable documentation.",
+    env: { huggingface: { HF_XET_HIGH_PERFORMANCE: "1" } },
+    source: "https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables",
   },
   {
     id: "ollama-systemd-dropin",
@@ -302,13 +301,13 @@ export const OPTIONS: OptimizationOption[] = [
     ],
     requires: [],
     applyOp: "systemd-dropin",
-    source: "systemd.service(5) drop-in documentation.",
+    source: "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
   },
   {
     id: "vllm-attention-backend",
-    name: "Select the vLLM attention backend",
+    name: "Review the vLLM attention backend",
     description:
-      "Pin vLLM's attention backend (VLLM_ATTENTION_BACKEND=FLASHINFER). FlashInfer is often fastest on modern GPUs, but the best choice is hardware- and version-dependent — verify by benchmarking rather than trusting the default.",
+      "vLLM chooses its attention backend automatically by priority for the installed GPU and version. Pinning VLLM_ATTENTION_BACKEND (e.g. FLASHINFER) contradicts that auto-priority and the variable is not present in all current releases — advisory only: benchmark backends rather than forcing one.",
     category: "runtime",
     platforms: ["linux"],
     requiresPrivilege: false,
@@ -319,14 +318,12 @@ export const OPTIONS: OptimizationOption[] = [
       metric: "prefill/decode throughput",
       tier: "C",
       method:
-        "vLLM documentation (VLLM_ATTENTION_BACKEND); backend choice is GPU- and version-dependent.",
+        "vLLM documentation (VLLM_ATTENTION_BACKEND); backend choice is GPU- and version-dependent and best left to auto-selection.",
     },
     conflictsWith: [],
     synergizesWith: ["vllm-long-context"],
     requires: [],
-    applyOp: "env",
-    env: { vllm: { VLLM_ATTENTION_BACKEND: "FLASHINFER" } },
-    source: "vLLM environment-variable documentation.",
+    source: "https://docs.vllm.ai/en/latest/serving/env_vars.html",
   },
   {
     id: "vllm-long-context",
@@ -350,7 +347,7 @@ export const OPTIONS: OptimizationOption[] = [
     requires: [],
     applyOp: "env",
     env: { vllm: { VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1" } },
-    source: "vLLM environment-variable documentation.",
+    source: "https://docs.vllm.ai/en/latest/serving/env_vars.html",
   },
   {
     id: "numa-binding",
@@ -371,7 +368,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/ai-optimization-compatibility.md",
+    source: "https://docs.kernel.org/admin-guide/mm/numa_memory_policy.html",
   },
   {
     id: "zram",
@@ -393,7 +390,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: ["disk-swap", "mlock"],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/ai-optimization-compatibility.md",
+    source: "https://docs.kernel.org/admin-guide/blockdev/zram.html",
   },
   {
     id: "disk-swap",
@@ -415,7 +412,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: ["zram", "mlock"],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/ai-optimization-compatibility.md",
+    source: "https://docs.kernel.org/admin-guide/mm/concepts.html",
   },
   {
     id: "mlock",
@@ -436,7 +433,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: ["zram", "disk-swap"],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/ai-optimization-best-practices.md",
+    source: "https://github.com/ggml-org/llama.cpp",
   },
   {
     id: "arm64-native-builds",
@@ -457,7 +454,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/dgx-spark-support.md",
+    source: "https://docs.nvidia.com/dgx/dgx-spark/index.html",
   },
   {
     id: "tensorrt-llm",
@@ -466,6 +463,7 @@ export const OPTIONS: OptimizationOption[] = [
       "Serve models with TensorRT-LLM for Blackwell-class GPUs. Vendor-supported stack; on DGX OS it ships in the OS image.",
     category: "runtime",
     platforms: ["linux"],
+    requiresVendor: "nvidia",
     requiresPrivilege: false,
     risk: "medium",
     reversibility: "fully-reversible",
@@ -478,7 +476,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["nvfp4-blackwell"],
     requires: [],
-    source: "research/mcp/dgx-spark-support.md",
+    source: "https://github.com/NVIDIA/TensorRT-LLM",
   },
   {
     id: "nvfp4-blackwell",
@@ -487,6 +485,7 @@ export const OPTIONS: OptimizationOption[] = [
       "Use 4-bit float (NVFP4) weights/KV on Blackwell-class hardware. Version-gated: NVFP4 support landed during 2026, so older stacks lack it.",
     category: "quantization",
     platforms: ["linux"],
+    requiresVendor: "nvidia",
     requiresPrivilege: false,
     risk: "medium",
     reversibility: "fully-reversible",
@@ -499,7 +498,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["tensorrt-llm"],
     requires: [],
-    source: "research/mcp/dgx-spark-support.md",
+    source: "https://github.com/NVIDIA/TensorRT-LLM",
   },
   {
     id: "dgx-tensor-parallel",
@@ -514,15 +513,15 @@ export const OPTIONS: OptimizationOption[] = [
     resourceCost: {},
     expectedImprovement: {
       metric: "TTFT / TPOT",
-      estimate: 2,
+      estimate: 1,
       tier: "B",
       method:
-        "NVIDIA documentation: TP2 ~2x and TP4 ~4x TTFT/TPOT improvements on a 3-node ring (vendor-reported).",
+        "NVIDIA documentation: TP2 ~2x (+100%) and TP4 ~4x (+300%) TTFT/TPOT improvements on a 3-node ring (vendor-reported).",
     },
     conflictsWith: [],
     synergizesWith: ["tensorrt-llm"],
     requires: [],
-    source: "research/mcp/dgx-spark-support.md",
+    source: "https://docs.nvidia.com/dgx/dgx-spark/index.html",
   },
   {
     id: "cuda-backend",
@@ -544,7 +543,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["flash-attention", "kv-cache-quant-q8"],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://docs.nvidia.com/cuda/",
   },
   {
     id: "rocm-backend",
@@ -566,7 +565,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://rocm.docs.amd.com/",
   },
   {
     id: "metal-mlx",
@@ -588,7 +587,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["keep-alive-preload"],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://ml-explore.github.io/mlx/build/html/index.html",
   },
   {
     id: "vulkan-backend",
@@ -609,7 +608,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://www.vulkan.org/",
   },
   {
     id: "openvino-backend",
@@ -631,7 +630,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://docs.openvino.ai/",
   },
   {
     id: "qnn-npu",
@@ -653,7 +652,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/consumer-ai-hardware.md",
+    source: "https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html",
   },
   {
     id: "nccl-tuning",
@@ -674,7 +673,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["tensor-pipeline-parallel"],
     requires: [],
-    source: "research/mcp/enterprise-frontier-hardware.md",
+    source: "https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/index.html",
   },
   {
     id: "tensor-pipeline-parallel",
@@ -695,7 +694,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["nccl-tuning"],
     requires: [],
-    source: "research/mcp/enterprise-frontier-hardware.md",
+    source: "https://docs.vllm.ai/en/latest/serving/distributed_serving.html",
   },
   {
     id: "mig-inference-sizing",
@@ -717,7 +716,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/enterprise-frontier-hardware.md",
+    source: "https://docs.nvidia.com/datacenter/tesla/mig-user-guide/",
   },
   {
     id: "gpudirect-storage",
@@ -739,7 +738,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: [],
     requires: [],
-    source: "research/mcp/enterprise-frontier-hardware.md",
+    source: "https://docs.nvidia.com/gpudirect-storage/",
   },
   {
     id: "kv-offload",
@@ -760,7 +759,7 @@ export const OPTIONS: OptimizationOption[] = [
     conflictsWith: [],
     synergizesWith: ["prefix-caching"],
     requires: [],
-    source: "research/mcp/enterprise-frontier-hardware.md",
+    source: "https://docs.lmcache.ai/",
   },
 ];
 

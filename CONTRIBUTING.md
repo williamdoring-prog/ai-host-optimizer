@@ -9,9 +9,9 @@ you'll fit right in.
 1. **Honesty over hype.** Every improvement estimate carries a confidence tier:
    **A** (measured on the host), **B** (labelled estimate with a cited method), or
    **C** (qualitative only). Tier B/C must never be presented as a measurement.
-2. **Read-only by default.** The current milestone (M0) *changes nothing* on the
-   user's machine. Any future applier must be consent-driven, dry-run-first and
-   reversible.
+2. **Read-only by default.** Profiling and planning change nothing on the user's
+   machine. The applier is consent-driven, dry-run-first, contained to the
+   managed directory, and reversible.
 3. **Evidence before assumptions.** Facts need a source; inferences are labelled.
 
 ## Ways to contribute
@@ -76,8 +76,17 @@ See `docs/registry-schema.md` for the full reference. The essentials:
 ### Rules (enforced by `validateRegistry` and the test suite)
 
 - **Tier B requires both** a numeric `estimate` **and** a `method`/citation.
-- **`requires` / `conflictsWith` / `synergizesWith` must reference existing ids.**
+- **`requires` / `conflictsWith` / `synergizesWith` must reference existing ids**,
+  and `requires` must not contain a cycle or a self-reference.
 - **An `exclusiveGroup` should have ≥ 2 members** (otherwise it is not exclusive).
+- **`applyOp`, when present, must be one of the allow-listed ops** (`env`,
+  `systemd-dropin`). An option that declares `env` must use `applyOp: "env"`, and
+  vice versa.
+- **Environment names** must match `^[A-Z_][A-Z0-9_]*$`; **target names** must
+  match `^[a-zA-Z0-9._-]+$`; **values** must not contain newlines, NUL bytes, or
+  Ansible/Jinja template markers (`{{`, `{%`).
+- **`source` must resolve**: an `http(s)` URL, an existing repository path, or a
+  prose citation with no path component.
 - **Prefer tier C** unless you have a defensible, cited number. Vendor claims are
   welcome but must be labelled as vendor claims in `method`.
 - **Do not invent magnitudes.** "Should reduce paging" (tier C) is a valid,
@@ -131,6 +140,25 @@ first-class contribution here.**
 
 By contributing you agree your contributions are licensed under the project's
 **MIT** licence.
+
+### Dependency licence posture
+
+The runtime surface is deliberately tiny and fully permissive; adding a
+copyleft or otherwise encumbered dependency requires an issue and maintainer
+sign-off first.
+
+| Package | Version | Licence |
+|---|---|---|
+| `@modelcontextprotocol/sdk` | ^1.32.2 | MIT |
+| `zod` | ^3.23.8 | MIT |
+| `typescript` (dev) | ^5.6.0 | Apache-2.0 |
+| `tsx` (dev) | ^4.19.0 | MIT |
+| `@types/node` (dev) | ^22.7.0 | MIT |
+
+The project itself is MIT. TypeScript is Apache-2.0, which is compatible with
+MIT for use as a build tool. No copyleft (GPL/AGPL/LGPL) licence is present in
+the runtime or dev dependency tree at the time of writing; re-check with
+`npm ls --all` when dependencies change.
 
 ## Code of conduct
 

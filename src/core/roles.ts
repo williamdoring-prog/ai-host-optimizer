@@ -6,8 +6,6 @@
  * appropriate) and **professional** (a term an engineer would recognise).
  */
 
-import type { SystemRole } from "./types.js";
-
 /** Literal tuple (usable with zod's `z.enum`). */
 export const ROLE_NAMES = [
   "workstation",
@@ -19,6 +17,12 @@ export const ROLE_NAMES = [
   "cluster-node",
   "ci-runner",
 ] as const;
+
+/**
+ * The system role type, derived from the canonical tuple so it can never drift
+ * from `ROLE_NAMES`. `core/types.ts` re-exports it for convenience.
+ */
+export type SystemRole = (typeof ROLE_NAMES)[number];
 
 /** The same roles as a mutable array. */
 export const ROLES: SystemRole[] = [...ROLE_NAMES];

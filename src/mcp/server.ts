@@ -1,9 +1,14 @@
 /**
  * MCP server (stdio transport).
  *
- * Exposes the read-only surface: `profile`, `checklist`, `plan`, `benchmark`
- * and `validate-registry`.
- * No tool in this file modifies the host.
+ * Exposes a READ-ONLY surface: `profile`, `checklist`, `plan`, `benchmark`.
+ * No tool in this file modifies the host. Data tools return both
+ * `structuredContent` (machine-readable, with an `outputSchema`) and a short
+ * text fallback, so agents can compose reliably.
+ *
+ * Implementation detail (`env`, `applyOp`) is deliberately omitted from the
+ * agent-facing option view; agents are told whether an option is `applyable`
+ * but are not handed the machinery.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -13,14 +18,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
-import { profileHost } from "../core/profiler.js";
-import { buildChecklist, validateRegistry } from "../core/checklist.js";
-import { buildPlan } from "../core/plan.js";
-import { loadCalibrations } from "../core/calibration.js";
-import { runBenchmark } from "../core/benchmark.js";
-import { OPTIONS } from "../registry/options.js";
+import { createEngine, type Engine } from "../core/engine.js";
 import { ROLE_NAMES, ROLE_DESCRIPTORS } from "../core/roles.js";
-import type { SystemRole } from "../core/types.js";
+import { renderChecklist } from "../render/checklist.js";
+import { renderPlan } from "../render/plan.js";
+import type { ChecklistItem, OptimizationOption } from "../core/types.js";
 
 /** Read the version from package.json (kept in sync automatically). */
 function readVersion(): string {
@@ -46,125 +48,191 @@ const roleField = z
       ".",
   );
 
-/** Render the checklist as a human-readable text block. */
-function renderChecklist(
-  items: ReturnType<typeof buildChecklist>,
-  role?: SystemRole,
-): string {
-  const lines: string[] = [];
-  lines.push("AI host optimization checklist (read-only — nothing is applied)");
-  if (role) lines.push(`System role: ${role}`);
-  const roleNote = items.find((i) => i.roleNote)?.roleNote;
-  if (roleNote) lines.push(`Note: ${roleNote}`);
-  if (items.some((i) => i.advisoryOnly)) {
-    lines.push("Note: this role is ADVISORY ONLY — no changes will be applied.");
-  }
-  lines.push("");
-  for (const item of items) {
-    const o = item.option;
-    const tier = o.expectedImprovement.tier;
-    const est =
-      o.expectedImprovement.estimate !== undefined
-        ? `${Math.round(o.expectedImprovement.estimate * 100)}%`
-        : "qualitative";
-    const status = item.applicable ? "[ ]" : "[x] (n/a)";
-    lines.push(`${status} ${o.name}  (${o.id})`);
-    lines.push(
-      `      improves: ${o.expectedImprovement.metric} — ${est} (tier ${tier})`,
-    );
-    lines.push(
-      `      resource: ${JSON.stringify(o.resourceCost)}  risk: ${o.risk}  reversible: ${o.reversibility}`,
-    );
-    if (o.exclusiveGroup) lines.push(`      exclusive group: ${o.exclusiveGroup}`);
-    if (o.inclusiveGroup) lines.push(`      stackable group: ${o.inclusiveGroup}`);
-    if (o.conflictsWith.length) lines.push(`      conflicts with: ${o.conflictsWith.join(", ")}`);
-    if (o.synergizesWith.length) lines.push(`      synergizes with: ${o.synergizesWith.join(", ")}`);
-    if (o.requires.length) lines.push(`      requires: ${o.requires.join(", ")}`);
-    if (!item.applicable && item.reason) lines.push(`      not applicable: ${item.reason}`);
-    lines.push("");
-  }
-  return lines.join("\n");
+/** Input bounds (security): cap counts and lengths so a caller cannot exhaust us. */
+const MAX_SELECT = 32;
+const MAX_ID_LEN = 64;
+const MAX_MODEL_LEN = 128;
+const selectField = z
+  .array(z.string().min(1).max(MAX_ID_LEN))
+  .min(1)
+  .max(MAX_SELECT)
+  .describe(`Option ids to include (1–${MAX_SELECT}, see the checklist tool).`);
+const modelField = z
+  .string()
+  .max(MAX_MODEL_LEN)
+  .optional()
+  .describe("Model to measure; defaults to the first local model. Never pulled implicitly.");
+
+/** Agent-facing option view: no `env` / `applyOp` implementation detail. */
+function publicOption(o: OptimizationOption): Record<string, unknown> {
+  return {
+    id: o.id,
+    name: o.name,
+    description: o.description,
+    category: o.category,
+    platforms: o.platforms,
+    risk: o.risk,
+    reversibility: o.reversibility,
+    requiresPrivilege: o.requiresPrivilege,
+    requiresVendor: o.requiresVendor,
+    resourceCost: o.resourceCost,
+    expectedImprovement: o.expectedImprovement,
+    exclusiveGroup: o.exclusiveGroup,
+    inclusiveGroup: o.inclusiveGroup,
+    conflictsWith: o.conflictsWith,
+    synergizesWith: o.synergizesWith,
+    requires: o.requires,
+    source: o.source,
+    applyable: o.applyOp !== undefined,
+  };
 }
 
-/** Create and configure the MCP server. */
-export function createServer(): McpServer {
-  const server = new McpServer({
-    name: "ai-host-optimizer",
-    version: VERSION,
-  });
+function publicChecklistItem(item: ChecklistItem): Record<string, unknown> {
+  return {
+    option: publicOption(item.option),
+    applicable: item.applicable,
+    reason: item.reason,
+    blockedBy: item.blockedBy,
+    advisoryOnly: item.advisoryOnly,
+    roleNote: item.roleNote,
+  };
+}
 
-  server.tool(
+/** Guard against overlapping expensive benchmark calls. */
+let benchmarkRunning = false;
+
+/** Create and configure the MCP server. */
+export function createServer(engine: Engine = createEngine()): McpServer {
+  const server = new McpServer({ name: "ai-host-optimizer", version: VERSION });
+
+  server.registerTool(
     "profile",
-    "Profile this host (read-only): OS, CPU, memory, GPU and detected local-AI tooling.",
-    { role: roleField },
+    {
+      title: "Profile host",
+      description: "Profile this host (read-only): OS, CPU, memory, GPU and detected local-AI tooling.",
+      inputSchema: { role: roleField },
+      outputSchema: { profile: z.record(z.string(), z.unknown()) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
     async ({ role }) => {
-      const profile = await profileHost(role);
+      const profile = await engine.profile(role);
       return {
         content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
+        structuredContent: { profile: profile as unknown as Record<string, unknown> },
       };
     },
   );
 
-  server.tool(
+  server.registerTool(
     "checklist",
-    "Return a checklist of AI optimization options for this host, each with an estimated improvement and resource footprint. Read-only.",
-    { role: roleField },
+    {
+      title: "Optimization checklist",
+      description:
+        "Return a checklist of AI optimization options for this host, each with an estimated " +
+        "improvement, resource footprint and applicability. Read-only.",
+      inputSchema: { role: roleField },
+      outputSchema: {
+        role: z.string().optional(),
+        items: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
     async ({ role }) => {
-      const profile = await profileHost(role);
-      const items = buildChecklist(profile, OPTIONS);
+      const profile = await engine.profile(role);
+      const items = await engine.checklist(role);
       return {
-        content: [{ type: "text", text: renderChecklist(items, profile.role) }],
+        content: [{ type: "text", text: renderChecklist(profile, items) }],
+        structuredContent: {
+          role: profile.role,
+          items: items.map(publicChecklistItem),
+        },
       };
     },
   );
 
-  server.tool(
-    "validate-registry",
-    "Validate the option registry's internal consistency (development aid).",
-    {},
-    async () => {
-      const problems = validateRegistry(OPTIONS);
-      const text =
-        problems.length === 0
-          ? "Registry is consistent."
-          : `Registry problems:\n- ${problems.join("\n- ")}`;
-      return { content: [{ type: "text", text }] };
-    },
-  );
-
-  server.tool(
+  server.registerTool(
     "plan",
-    "Resolve a conflict-free plan for the given option ids, with a combined improvement estimate. " +
-      "Where a MEASURED (tier A) calibration exists on this host, it replaces the estimate. Read-only — nothing is applied.",
     {
-      select: z.array(z.string()).min(1).describe("Option ids to include (see the checklist tool)."),
-      role: roleField,
+      title: "Plan options",
+      description:
+        "Resolve a conflict-free plan for the given option ids, with a combined improvement " +
+        "estimate. Where a MEASURED (tier A) calibration exists on this host, it replaces the " +
+        "estimate. Read-only — nothing is applied.",
+      inputSchema: { select: selectField, role: roleField },
+      outputSchema: { plan: z.record(z.string(), z.unknown()) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ select, role }) => {
-      const profile = await profileHost(role);
-      const calibrations = await loadCalibrations();
-      const plan = buildPlan(select, profile, OPTIONS, calibrations);
-      return { content: [{ type: "text", text: JSON.stringify(plan, null, 2) }] };
+      const plan = await engine.plan(select, role);
+      return {
+        content: [{ type: "text", text: renderPlan(plan, "Plan") }],
+        structuredContent: { plan: plan as unknown as Record<string, unknown> },
+      };
     },
   );
 
-  server.tool(
-    "benchmark",
-    "Measure this host's local inference rate (tier A evidence): decode tokens/second, prefill rate " +
-      "and the run-to-run noise floor. Loads a model, so it can take a minute or more. Read-only (no host changes).",
+  server.registerTool(
+    "recommend",
     {
-      model: z.string().optional().describe("Model to measure; defaults to the first local model."),
-      samples: z
-        .number()
-        .int()
-        .min(1)
-        .max(50)
-        .optional()
-        .describe("Samples per measurement (default 3). More samples = lower noise floor."),
+      title: "Recommend a plan",
+      description:
+        "Auto-select a safe, conflict-free set of applyable options for this host and return the " +
+        "resulting plan. Read-only.",
+      inputSchema: { role: roleField },
+      outputSchema: { plan: z.record(z.string(), z.unknown()) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ model, samples }) => {
-      const result = await runBenchmark(model, samples);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    async ({ role }) => {
+      const plan = await engine.recommend(role);
+      return {
+        content: [{ type: "text", text: renderPlan(plan, "Recommended plan") }],
+        structuredContent: { plan: plan as unknown as Record<string, unknown> },
+      };
+    },
+  );
+
+  server.registerTool(
+    "benchmark",
+    {
+      title: "Benchmark host",
+      description:
+        "Measure this host's local inference rate (tier A evidence): decode tokens/second, prefill, " +
+        "TTFT, inter-token latency and the run-to-run interval. Loads a model, so it can take a " +
+        "minute or more. Read-only (no host changes, no implicit model pulls).",
+      inputSchema: {
+        model: modelField,
+        samples: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe("Samples per measurement (default 3). More samples = tighter interval."),
+        profile: z
+          .enum(["decode", "prefill", "throughput", "load"])
+          .optional()
+          .describe("Workload profile (default decode)."),
+      },
+      outputSchema: { benchmark: z.record(z.string(), z.unknown()) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ model, samples, profile }) => {
+      if (benchmarkRunning) {
+        return {
+          content: [{ type: "text", text: "A benchmark is already running; try again shortly." }],
+          isError: true,
+        };
+      }
+      benchmarkRunning = true;
+      try {
+        const result = await engine.benchmark({ model, samples, profile });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: { benchmark: result as unknown as Record<string, unknown> },
+        };
+      } finally {
+        benchmarkRunning = false;
+      }
     },
   );
 

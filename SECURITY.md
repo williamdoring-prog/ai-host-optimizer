@@ -45,10 +45,16 @@ Any future capability that modifies the host **must**:
 
 1. be **consent-driven** (per change, not one blanket approval);
 2. be **dry-run by default**, showing the resolved change;
-3. be **reversible**, with a recorded rollback;
+3. be **reversible**, with a recorded rollback (pre-existing files are backed up
+   and restored on `--revert`);
 4. be **allow-listed** (no arbitrary shell execution);
-5. be **injection-resistant** (the model proposes; the server enforces).
+5. be **injection-resistant** (the model proposes; the server enforces; values
+   are encoded for the sink they are written to);
+6. be **contained** — every path written or deleted is proven, via
+   `path.relative`, to lie inside the managed directory;
+7. **refuse to run in an advisory role** (`cluster-node`, `ci-runner`) unless an
+   explicit `--force-advisory` override is given.
 
 ## Supported versions
 
-Pre-1.0: only the latest release is supported.
+1.x: only the latest release is supported.
