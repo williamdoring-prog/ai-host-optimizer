@@ -101,4 +101,17 @@ jobs:
         run: ./mcp-publisher login github-oidc
 
       - name: Publish server to the MCP Registry
-        run: ./mcp-publisher publish
+        # The registry independently resolves the npm package to verify `mcpName`
+        # ownership; that lookup can lag the publish, so retry with backoff.
+        run: |
+          set -uo pipefail
+          for attempt in $(seq 1 6); do
+            if ./mcp-publisher publish; then
+              echo "Published to the MCP Registry."
+              exit 0
+            fi
+            echo "MCP Registry publish failed (attempt ${attempt}/6); retrying in 20s..."
+            sleep 20
+          done
+          echo "MCP Registry publish failed after 6 attempts." >&2
+          exit 1
