@@ -155,6 +155,12 @@ export interface OptimizationOption {
    */
   env?: Record<string, Record<string, string>>;
 
+  /**
+   * When true, this option's environment values are treated as secrets and
+   * redacted in console output (files are still written with the real value).
+   */
+  secret?: boolean;
+
   /** Optional citation for the option's existence/behaviour. */
   source?: string;
 }

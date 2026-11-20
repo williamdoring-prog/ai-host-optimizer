@@ -2,6 +2,15 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — file modes and secret redaction (AIHO-033)
+
+- The managed directory is created **`0700`** and every file it writes is
+  **`0600`** (owner-only). On Windows the POSIX mode is not enforced by the OS.
+- Options may be marked **`secret: true`**; their values are then **redacted**
+  (`***`) in console output. The real value is still written to the managed file
+  and remains owner-only.
+- Documented the policy in `SECURITY.md`.
+
 ## 1.7.0 — 2026-11-20
 
 Interactive selector: choose what to apply with a checkbox UI.

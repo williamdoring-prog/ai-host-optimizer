@@ -128,3 +128,30 @@ test("the applier refuses a target name that escapes the managed directory", () 
   const plan: Plan = { steps: [{ option: evil }], rejections: [], notes: [] };
   assert.throws(() => buildApplyPlan(plan), /invalid env target|outside the managed/);
 });
+
+test("secret options are flagged for redaction but still written", () => {
+  const secret: OptimizationOption = {
+    id: "secret-fixture",
+    name: "Secret fixture",
+    description: "test fixture",
+    category: "runtime",
+    platforms: ["linux"],
+    requiresPrivilege: false,
+    risk: "low",
+    reversibility: "fully-reversible",
+    resourceCost: {},
+    expectedImprovement: { metric: "x", tier: "C" },
+    conflictsWith: [],
+    synergizesWith: [],
+    requires: [],
+    applyOp: "env",
+    secret: true,
+    env: { ollama: { SECRET_TOKEN: "s3cr3t" } },
+  };
+  const plan: Plan = { steps: [{ option: secret }], rejections: [], notes: [] };
+  const applied = buildApplyPlan(plan);
+  assert.deepEqual(applied.secretVars, ["SECRET_TOKEN"]);
+  // Redaction is display-only: the real value is written to the file.
+  const file = applied.files.find((f) => f.path.endsWith("ollama.env"))!;
+  assert.match(file.content, /SECRET_TOKEN="s3cr3t"/);
+});

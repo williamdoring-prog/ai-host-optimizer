@@ -490,9 +490,9 @@ function baselinePath(): string {
 /** Persist a baseline measurement. */
 export async function saveBaseline(result: BenchmarkResult): Promise<string> {
   const dir = managedDir();
-  await mkdir(dir, { recursive: true });
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   const path = baselinePath();
-  await writeFile(path, JSON.stringify(result, null, 2), "utf8");
+  await writeFile(path, JSON.stringify(result, null, 2), { encoding: "utf8", mode: 0o600 });
   return path;
 }
 

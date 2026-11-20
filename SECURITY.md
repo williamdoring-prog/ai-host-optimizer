@@ -39,8 +39,17 @@ This project has an unusually narrow attack surface **by design**:
   When they land, their threat model (CSRF / DNS-rebinding defence for the
   loopback server) will be documented here.
 
-## Design commitments for anything that can change the system
+## Managed-file permissions and secrets
 
+- The managed directory is created with mode **`0700`** and every file the applier
+  writes is **`0600`**, so managed configuration is readable only by its owner.
+  On Windows the POSIX mode is not enforced by the OS; the directory lives under
+  the user profile (`%APPDATA%`).
+- An option may be marked **`secret: true`**; its values are then **redacted**
+  (`***`) in console output. The real value is still written to the managed file
+  (that is the point of applying it) and stays owner-only.
+
+## Design commitments for anything that can change the system
 Any future capability that modifies the host **must**:
 
 1. be **consent-driven** (per change, not one blanket approval);

@@ -83,7 +83,7 @@ export async function recordCalibration(
   entry: CalibrationEntry,
   dir: string = managedDir(),
 ): Promise<string> {
-  await mkdir(dir, { recursive: true });
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   const all = await loadCalibrations(dir);
   const prior = all[entry.optionId];
   let merged = entry;
@@ -104,7 +104,7 @@ export async function recordCalibration(
   }
   all[entry.optionId] = merged;
   const path = calibrationPath(dir);
-  await writeFile(path, JSON.stringify(all, null, 2), "utf8");
+  await writeFile(path, JSON.stringify(all, null, 2), { encoding: "utf8", mode: 0o600 });
   return path;
 }
 

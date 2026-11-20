@@ -460,7 +460,7 @@ export async function runApply(
     for (const target of Object.keys(applyPlan.envByTarget).sort()) {
       stdout.write(`  [${target}]\n`);
       for (const [k, v] of Object.entries(applyPlan.envByTarget[target]!).sort()) {
-        stdout.write(`    ${k}=${v}\n`);
+        stdout.write(`    ${k}=${applyPlan.secretVars.includes(k) ? "***" : v}\n`);
       }
     }
   }

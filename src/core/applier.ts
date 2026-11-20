@@ -42,6 +42,8 @@ export interface ApplyPlan {
   files: ManagedFile[];
   /** Option ids contributing to this plan. */
   optionIds: string[];
+  /** Environment variable names whose values must be redacted in output. */
+  secretVars: string[];
   /** Manual steps the user must run (the applier never escalates privilege). */
   notes: string[];
 }
@@ -209,12 +211,21 @@ export function buildApplyPlan(plan: Plan, dir = managedDir()): ApplyPlan {
   // Containment is proven here, before anything can be written.
   for (const f of files) assertContained(dir, f.path);
 
+  const secretVars = [
+    ...new Set(
+      envContrib
+        .filter((o) => o.secret)
+        .flatMap((o) => Object.values(o.env ?? {}).flatMap((vars) => Object.keys(vars))),
+    ),
+  ];
+
   return {
     ops,
     envVars: merged,
     envByTarget,
     files,
     optionIds: [...new Set([...envContrib, ...systemdContrib].map((o) => o.id))],
+    secretVars,
     notes,
   };
 }
@@ -250,7 +261,8 @@ async function readFileSafe(path: string): Promise<string | undefined> {
  */
 async function writeFileAtomic(path: string, content: string): Promise<void> {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const handle = await open(tmp, "w");
+  // 0600: only the owner can read/write the managed files (ignored on Windows).
+  const handle = await open(tmp, "w", 0o600);
   try {
     await handle.writeFile(content, "utf8");
     await handle.sync();
@@ -337,14 +349,14 @@ export async function applyPlan(
     return { dryRun: true, written: plan.files.map((f) => f.path) };
   }
 
-  await mkdir(dir, { recursive: true });
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   const prior = await readState(dir); // throws on corrupt state — do not clobber it
   const merged = new Map<string, StateFileEntry>((prior?.files ?? []).map((e) => [e.path, e]));
   const written: string[] = [];
 
   for (const f of plan.files) {
     assertContained(dir, f.path);
-    await mkdir(dirname(f.path), { recursive: true });
+    await mkdir(dirname(f.path), { recursive: true, mode: 0o700 });
 
     let entry = merged.get(f.path);
     if (!entry) {
@@ -352,7 +364,7 @@ export async function applyPlan(
       const existing = await readFileSafe(f.path);
       if (existing !== undefined) {
         const backup = backupPathFor(f.path, dir);
-        await mkdir(dirname(backup), { recursive: true });
+        await mkdir(dirname(backup), { recursive: true, mode: 0o700 });
         await writeFileAtomic(backup, existing);
         entry.backup = backup;
       }
