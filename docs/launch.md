@@ -32,26 +32,28 @@ you can see whether they did anything.
 
 Every estimate is tagged by confidence:
 
-- **A — measured** on your host
+- **A — measured** on your host, confidence interval excludes zero
+- **A− — measured**, single session (direction consistent, magnitude uncertain)
 - **B — labelled estimate** with a cited method
 - **C — qualitative** (direction only, no number)
+- **N — measured null** (no change beyond the interval)
 
 Nothing is shown as measured unless it was.
 
-**The benchmark is the point.** It measures decode tokens/second via the local
-runtime's API, takes several samples, and reports the run-to-run **noise floor**.
-`--calibrate` then only promotes an option to tier A when the change *exceeds*
-that floor. If it doesn't, it says so and records nothing:
+**The benchmark is the point.** It measures decode tokens/second (plus prefill,
+TTFT, inter-token latency and VRAM) via the local runtime's API, fixes and
+records the parameters, and reports the **median with IQR/MAD and a bootstrap
+confidence interval**. `--calibrate` only promotes an option to tier A when that
+interval **excludes zero**; otherwise it records a **null** (tier N). If it can't
+tell, it says so:
 
 ```
 $ ai-host-optimizer --calibrate --select flash-attention
-  baseline: qwen2.5-coder:14b, 10.29 tok/s, 2638.9 ms, 5549 MiB free
-  current : qwen2.5-coder:14b, 10.16 tok/s, 2860.5 ms, 5541 MiB free
-  noise floor: ±13.9%
-
-No significant change: decode tokens/s -1.3% is within the ±13.9% noise floor
-of this host.
-Nothing recorded — a null result is not evidence of an improvement.
+  current : qwen2.5-coder:14b 10.16 tok/s
+  decode  : -1.3%
+  ci (95%) : [-4.1, 1.2]
+  verdict : not significant
+  No change beyond the interval; recorded as a persisted null (tier N).
 ```
 
 On my box the run-to-run spread was ±7%, so a single before/after run can show a
@@ -62,11 +64,14 @@ useful than one that always claims a win.
 
 - Profiles the host, **role-aware** — a container can't tune the host kernel; a
   cluster node is advisory-only.
-- Checklist → conflict-free plan (one-of groups vs stackable groups).
+- `--recommend` auto-selects a safe, conflict-free set; `--plan` resolves any
+  selection (one-of groups vs stackable groups).
 - Applies — with consent — writing **only** into a managed config directory.
-  Dry-run by default, reversible, no shell, no privilege.
+  Dry-run by default, reversible (pre-existing files are backed up and restored),
+  no shell, no privilege.
+- `--json` on every command, `--doctor` for diagnostics, `--list` for the registry.
 - Generates Ansible / Dockerfile / checklist from the same registry.
-- Runs as an **MCP server** *and* a CLI.
+- Runs as an **MCP server** (structured outputs) *and* a CLI.
 
 **What it deliberately doesn't do**
 
@@ -94,15 +99,15 @@ MIT. "This claim is wrong" is the most useful feedback you can send.
 Short version: `npx -y ai-host-optimizer --cli` profiles your machine and prints
 the standard checklist (Flash Attention, KV-cache quant, keep-alive, …) with an
 honest confidence tier on every number. Then `--benchmark` + `--calibrate`
-measures tokens/second before and after, and only marks a win if it beats the
-host's own **noise floor**.
+measures tokens/second before and after, and only marks a win if the bootstrap
+confidence interval **excludes zero** — otherwise it records a null (tier N).
 
 Real example from my box (RTX 3080, 16 GiB): the run-to-run spread was ±7%, so a
 single before/after run proves nothing — which is exactly why most "I enabled X
 and got +20%" posts are noise. This tells you when it *can't* tell.
 
-Also works as an MCP server (`--mcp`), so you can ask your client for the
-checklist directly.
+`--recommend` picks a safe conflict-free set for you, and `--json` makes it
+scriptable. Also works as an MCP server (`--mcp`) with structured outputs.
 
 MIT, npm + MCP Registry. Would love to hear where the option list is wrong.
 

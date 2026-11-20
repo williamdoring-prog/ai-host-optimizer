@@ -7,7 +7,7 @@
  * handler in the applier — a deliberate, reviewable act.
  */
 
-export const APPLY_OP_IDS = ["env", "systemd-dropin"] as const;
+export const APPLY_OP_IDS = ["env", "systemd-dropin", "size"] as const;
 
 export type ApplyOpId = (typeof APPLY_OP_IDS)[number];
 

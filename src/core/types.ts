@@ -61,6 +61,23 @@ export interface ExpectedImprovement {
   method?: string;
 }
 
+/**
+ * Numeric sizing guard for the `size` apply op.
+ *
+ * A `size` option sets exactly one numeric environment variable, and declares
+ * the runtime's documented default so validation can prove the applied value is
+ * an *improvement* rather than a regression: with `direction: "higher"` (the
+ * default) the value must exceed the default; with `"lower"` it must be below.
+ */
+export interface SizeGuard {
+  /** The runtime's documented default for this variable. */
+  defaultValue: number;
+  /** Unit label for display, e.g. "tokens" or "layers". */
+  unit?: string;
+  /** Which way is better. Defaults to "higher". */
+  direction?: "higher" | "lower";
+}
+
 /** A single optimization option. */
 export interface OptimizationOption {
   id: string;
@@ -122,6 +139,12 @@ export interface OptimizationOption {
 
   /** Allow-listed operation id that would implement this. Absent = advisory only. */
   applyOp?: ApplyOpId;
+
+  /**
+   * Numeric guard for `applyOp: "size"`: the runtime default and the direction
+   * in which the applied value must improve on it. Required for the `size` op.
+   */
+  size?: SizeGuard;
 
   /**
    * Environment variables this option contributes to a managed runtime

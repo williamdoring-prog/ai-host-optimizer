@@ -32,8 +32,13 @@ interface OptimizationOption {
   conflictsWith: string[];    // ids that must not be applied together
   synergizesWith: string[];   // preferred companions
   requires: string[];         // prerequisites
-  applyOp?: "env" | "systemd-dropin";
+  applyOp?: "env" | "systemd-dropin" | "size";
                               // allow-listed operation id; absent = advisory only
+  size?: {                    // required for applyOp: "size" — the numeric guard
+    defaultValue: number;     // the runtime's documented default
+    unit?: string;            // display label, e.g. "tokens"
+    direction?: "higher" | "lower"; // which way is an improvement (default "higher")
+  };
   env?: Record<string, Record<string, string>>;
                               // target runtime -> { NAME: value }, e.g.
                               // { ollama: { OLLAMA_FLASH_ATTENTION: "1" },
@@ -52,6 +57,7 @@ Only options with an `applyOp` are automated; everything else is **advisory**
 |---|---|---|
 | `env` | Write `<target>.env` per target runtime into the managed directory, plus `activate.sh` / `activate.ps1` | ✅ `--revert` |
 | `systemd-dropin` | Write a systemd drop-in (for the Ollama service) into the managed directory and **print** the root install commands — the applier never escalates privilege | ✅ `--revert` |
+| `size` | Like `env`, but for a **single numeric** variable. The option declares the runtime's `defaultValue`, and validation proves the applied value is an improvement (above the default, or below when `direction: "lower"`) — so an option can never set a value worse than the runtime default | ✅ `--revert` |
 
 Target runtimes currently used: `ollama`, `llama.cpp`, `huggingface`, `vllm`. The
 applier substitutes `${MANAGED_DIR}` in a value with the managed config directory,
@@ -115,7 +121,9 @@ is unknown. Where only measurement can be trusted, the tool must say so.
 - tier B has both an `estimate` and a `method`;
 - `combine`, when present, is one of the allowed models;
 - `applyOp`, when present, is an allow-listed op, and `env` and `applyOp: "env"`
-  appear together (never one without the other);
+  (or `"size"`) appear together (never one without the other);
+- a `size` option declares exactly one integer env variable and a `size` guard,
+  and the value is an improvement over the declared default (never worse);
 - environment variable names match `^[A-Z_][A-Z0-9_]*$`, target names match
   `^[a-zA-Z0-9._-]+$`, and values contain no newline, NUL, or Ansible/Jinja
   template markers;

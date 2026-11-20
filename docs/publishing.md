@@ -109,16 +109,31 @@ github-oidc`) — no registry secret is needed, and no npm token either (see §3
 
 ## 5. Directories (the other layers)
 
-The official registry is live. Now list the server in the community directories.
-Each has its own submission flow; the point is to be in **all** of them.
+The official registry is live (now `1.3.0`). Now list the server in the community
+directories. Each has its own submission flow; the point is to be in **all** of
+them.
 
-| Layer | Where | Submission |
+| Layer | Where | Status / submission |
 |---|---|---|
-| Official registry | registry.modelcontextprotocol.io | ✅ done (`@1.1.1`) |
+| Official registry | registry.modelcontextprotocol.io | ✅ done (`1.3.0`, `isLatest`) |
 | GitHub MCP Registry | GitHub's registry listings | follows the official entry |
-| mcp.so | mcp.so | submit a server (GitHub URL) |
-| Glama | glama.ai/mcp/servers | add via GitHub |
-| PulseMCP | pulsemcp.com | submit a server |
+| mcp.so | <https://mcp.so/submit> | submit the **GitHub repo URL** |
+| Glama | <https://glama.ai/mcp/servers> | "Add MCP server" → GitHub repo URL |
+| PulseMCP | pulsemcp.com | ⏸️ submissions paused (per the roadmap) |
+
+### How to submit (manual, ~2 min each)
+
+1. **mcp.so** — open <https://mcp.so/submit>, paste
+   `https://github.com/williamdoring-prog/ai-host-optimizer`, and use the
+   *one-liner* and *categories* below. It indexes the repo's `server.json`.
+2. **Glama** — sign in with GitHub at <https://glama.ai/mcp/servers>, choose
+   "Add MCP server", and point it at the repo. Glama builds from the repo; make
+   sure the README's install block is the `npx -y ai-host-optimizer --mcp` form.
+3. Confirm the official entry resolves before announcing, so "add it to your
+   client" works:
+   ```bash
+   curl "https://registry.modelcontextprotocol.io/v0/servers?search=ai-host-optimizer"
+   ```
 
 ### Ready-to-paste copy
 
@@ -194,7 +209,8 @@ The client config is:
 }
 ```
 
-Then call the `profile`, `checklist`, `plan` or `benchmark` tools.
+Then call the `profile`, `checklist`, `plan`, `recommend` or `benchmark` tools
+(all read-only; every data tool returns structured content plus a text fallback).
 
 ## 8. Versioning
 

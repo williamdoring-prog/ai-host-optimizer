@@ -123,8 +123,11 @@ activate it. Undo any time with `--revert`.
 `huggingface.env`, `vllm.env` — plus a single `activate.sh` / `activate.ps1`. On
 Linux, the `ollama-systemd-dropin` option additionally writes a systemd drop-in
 (so the Ollama service actually reads that environment) and **prints** the root
-install commands rather than running them. Everything else is **advisory**:
-`--apply` says so plainly rather than doing nothing silently.
+install commands rather than running them. Numeric options use the `size` op,
+which declares the runtime's documented default so the applied value is proven to
+be an improvement (it can never set a value worse than the default). Everything
+else is **advisory**: `--apply` says so plainly rather than doing nothing
+silently.
 
 ## Use as an MCP server
 
@@ -283,6 +286,10 @@ Each option is one or the other, and the CLI/MCP tell you which:
   (`outputSchema`/`structuredContent`), CLI `--recommend`/`--json`/`--doctor`/
   `--list`, robust benchmark statistics (IQR/MAD + bootstrap CI, fixed params,
   workload profiles), tier A/A−/B/C/N, and container/cgroup/WSL/NUMA detection. ✅
+- **P2 (tranche 1)** — a `size` apply op with a numeric guard (never set a value
+  worse than the runtime default), context-length options for Ollama and
+  llama.cpp, and honest advisory entries for GPU visibility / HF offline / model
+  store relocation. **37 options, 11 applyable.** ✅
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation

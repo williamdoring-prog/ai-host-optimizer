@@ -84,4 +84,6 @@ test("generate produces registry-derived output", () => {
   const engine = engineWith();
   const dockerfile = engine.generate("dockerfile", ["hf-cache-location"]);
   assert.match(dockerfile, /ENV HF_HOME=/);
+  const sizeDockerfile = engine.generate("dockerfile", ["ollama-context-length"]);
+  assert.match(sizeDockerfile, /ENV OLLAMA_CONTEXT_LENGTH="8192"/);
 });

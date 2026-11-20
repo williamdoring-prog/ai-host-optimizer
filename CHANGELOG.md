@@ -2,6 +2,26 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — P2 depth (tranche 1)
+
+Deeper apply coverage without inflating the option list.
+
+- **New `size` apply op.** A `size` option sets exactly one numeric environment
+  variable and declares the runtime's documented default; validation proves the
+  applied value is an *improvement* (above the default, or below with
+  `direction: "lower"`), so an option can never set a value worse than the
+  runtime default.
+- **Context-length options** (`ollama-context-length`, `llama-ctx-size`) — the
+  first `size` options, each guarded against a 4096-token default.
+- **Honest advisory entries**: `gpu-device-visibility` (the device list is
+  host-specific), `hf-offline` (air-gap/reproducibility; breaks downloads until
+  unset), and `ollama-models-path` (relocation; existing models are not moved).
+- Registry now **37 options, 11 applyable** (8 `env` + 2 `size` + 1
+  `systemd-dropin`).
+- Docs: the launch kit and publishing guide are refreshed for the shipped CLI
+  (tiers A/A−/B/C/N, bootstrap-CI verdicts, `--recommend`/`--json`/`--doctor`,
+  registry `1.3.0`).
+
 ## 1.3.0 — 2026-11-20
 
 Engine seam, machine-readable output, measurement rigor (P1). The safety-critical

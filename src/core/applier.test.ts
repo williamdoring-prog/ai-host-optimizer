@@ -86,6 +86,13 @@ test("vLLM options contribute to the vllm target", () => {
   assert.ok(plan.files.some((f) => f.path.endsWith("vllm.env")));
 });
 
+test("a size option contributes env and is recorded as the size op", () => {
+  const plan = buildApplyPlan(planFor(["ollama-context-length"]));
+  assert.equal(plan.envByTarget["ollama"]?.["OLLAMA_CONTEXT_LENGTH"], "8192");
+  assert.ok(plan.ops.includes("size"));
+  assert.ok(plan.files.some((f) => f.path.endsWith("ollama.env")));
+});
+
 test("a rejected option cannot be materialised by the applier", () => {
   // q4 conflicts (exclusive group) with q8, so the plan rejects it.
   const plan = planFor(["kv-cache-quant-q8", "kv-cache-quant-q4"]);

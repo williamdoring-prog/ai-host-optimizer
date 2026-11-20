@@ -212,6 +212,68 @@ test("validation rejects a tier-B estimate without a method or number", () => {
   assert.ok(problems.some((p) => /tier B estimate requires a method/.test(p)));
 });
 
+test("validation accepts a well-formed size option", () => {
+  const problems = validateRegistry([
+    option({
+      applyOp: "size",
+      env: { ollama: { OLLAMA_CONTEXT_LENGTH: "8192" } },
+      size: { defaultValue: 4096, unit: "tokens" },
+    }),
+  ]);
+  assert.deepEqual(problems, []);
+});
+
+test("validation rejects a size option whose value is not an improvement", () => {
+  const tooLow = validateRegistry([
+    option({
+      applyOp: "size",
+      env: { ollama: { X: "2048" } },
+      size: { defaultValue: 4096 },
+    }),
+  ]);
+  assert.ok(tooLow.some((p) => /must exceed the default 4096/.test(p)));
+
+  const wrongDirection = validateRegistry([
+    option({
+      applyOp: "size",
+      env: { ollama: { X: "8192" } },
+      size: { defaultValue: 4096, direction: "lower" },
+    }),
+  ]);
+  assert.ok(wrongDirection.some((p) => /must be below the default 4096/.test(p)));
+});
+
+test("validation rejects malformed size guards", () => {
+  assert.ok(
+    validateRegistry([
+      option({ applyOp: "size", env: { ollama: { X: "8192" } } }),
+    ]).some((p) => /requires a size guard/.test(p)),
+  );
+  assert.ok(
+    validateRegistry([
+      option({
+        applyOp: "size",
+        env: { ollama: { X: "8g" } },
+        size: { defaultValue: 4096 },
+      }),
+    ]).some((p) => /must be an integer/.test(p)),
+  );
+  assert.ok(
+    validateRegistry([
+      option({
+        applyOp: "size",
+        env: { ollama: { X: "8192" }, "llama.cpp": { Y: "8192" } },
+        size: { defaultValue: 4096 },
+      }),
+    ]).some((p) => /exactly one env variable/.test(p)),
+  );
+  assert.ok(
+    validateRegistry([
+      option({ applyOp: "env", env: { ollama: { X: "1" } }, size: { defaultValue: 0 } }),
+    ]).some((p) => /size guard but applyOp is not "size"/.test(p)),
+  );
+});
+
 test("isAdvisoryRole is true only for governed/ephemeral roles", () => {
   assert.equal(isAdvisoryRole("cluster-node"), true);
   assert.equal(isAdvisoryRole("ci-runner"), true);

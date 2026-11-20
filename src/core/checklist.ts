@@ -100,11 +100,17 @@ export function validateRegistry(options: OptimizationOption[]): string[] {
       problems.push(`${o.id}: unknown applyOp "${o.applyOp}"`);
     }
     const envTargets = Object.keys(o.env ?? {});
-    if (o.applyOp === "env" && envTargets.length === 0) {
-      problems.push(`${o.id}: applyOp "env" but no env variables declared`);
+    const envLikeOp = o.applyOp === "env" || o.applyOp === "size";
+    if (envLikeOp && envTargets.length === 0) {
+      problems.push(`${o.id}: applyOp "${o.applyOp}" but no env variables declared`);
     }
-    if (envTargets.length > 0 && o.applyOp !== "env") {
-      problems.push(`${o.id}: declares env variables but applyOp is not "env"`);
+    if (envTargets.length > 0 && !envLikeOp) {
+      problems.push(`${o.id}: declares env variables but applyOp is not "env" or "size"`);
+    }
+    if (o.applyOp === "size") {
+      problems.push(...validateSizeGuard(o));
+    } else if (o.size) {
+      problems.push(`${o.id}: declares a size guard but applyOp is not "size"`);
     }
     for (const [target, vars] of Object.entries(o.env ?? {})) {
       if (!TARGET_NAME_RE.test(target)) {
@@ -142,6 +148,40 @@ export function validateRegistry(options: OptimizationOption[]): string[] {
   const cycle = findRequiresCycle(options);
   if (cycle) problems.push(`requires cycle: ${cycle}`);
 
+  return problems;
+}
+
+/** Validate a `size` option's numeric guard (never a value worse than default). */
+function validateSizeGuard(o: OptimizationOption): string[] {
+  const problems: string[] = [];
+  const guard = o.size;
+  if (!guard) {
+    problems.push(`${o.id}: applyOp "size" requires a size guard`);
+    return problems;
+  }
+  if (!Number.isFinite(guard.defaultValue) || guard.defaultValue < 0) {
+    problems.push(`${o.id}: size.defaultValue must be a non-negative number`);
+  }
+  const vars = Object.entries(o.env ?? {}).flatMap(([target, vars]) =>
+    Object.entries(vars).map(([name, value]) => ({ target, name, value })),
+  );
+  if (vars.length !== 1) {
+    problems.push(`${o.id}: applyOp "size" must declare exactly one env variable (found ${vars.length})`);
+    return problems;
+  }
+  const { name, value } = vars[0]!;
+  if (!/^\d+$/.test(value)) {
+    problems.push(`${o.id}: size value for ${name} must be an integer (got "${value}")`);
+    return problems;
+  }
+  const n = Number(value);
+  const direction = guard.direction ?? "higher";
+  if (direction === "higher" && !(n > guard.defaultValue)) {
+    problems.push(`${o.id}: size ${name}=${n} must exceed the default ${guard.defaultValue}`);
+  }
+  if (direction === "lower" && !(n < guard.defaultValue)) {
+    problems.push(`${o.id}: size ${name}=${n} must be below the default ${guard.defaultValue}`);
+  }
   return problems;
 }
 

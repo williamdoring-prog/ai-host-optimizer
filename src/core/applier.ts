@@ -70,9 +70,11 @@ export interface State {
   files: StateFileEntry[];
 }
 
-/** Options that contribute environment for a managed runtime. */
+/** Options that contribute environment for a managed runtime (env + numeric size). */
 function envOptions(options: OptimizationOption[]): OptimizationOption[] {
-  return options.filter((o) => o.applyOp === "env" && o.env && Object.keys(o.env).length > 0);
+  return options.filter(
+    (o) => (o.applyOp === "env" || o.applyOp === "size") && o.env && Object.keys(o.env).length > 0,
+  );
 }
 
 /** Options that request a systemd drop-in for the Ollama service (Linux). */
@@ -178,6 +180,7 @@ export function buildApplyPlan(plan: Plan, dir = managedDir()): ApplyPlan {
 
   if (targets.length > 0) {
     ops.push("env");
+    if (envContrib.some((o) => o.applyOp === "size")) ops.push("size");
     files.push(
       ...targets.map((t, i) => ({
         path: envPaths[i]!,
