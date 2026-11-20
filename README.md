@@ -166,6 +166,11 @@ Tools exposed (all **read-only**, returning structured data plus a text fallback
 | `recommend` | Auto-select a safe, conflict-free set of applyable options |
 | `benchmark` | Measure local inference (decode/prefill/TTFT/ITL) + the run-to-run interval — tier-A evidence |
 
+Also exposed: **resources** (`aiho://registry/options`, `aiho://host/profile`,
+`aiho://host/checklist`, `aiho://docs/*`) and **prompts**
+(`optimize_local_ai_host`, `explain_option`, `interpret_benchmark`). Tools remain
+the portable path; resources and prompts are additive.
+
 Published to the **official MCP Registry** as
 `io.github.williamdoring-prog/ai-host-optimizer` (see `server.json`).
 

@@ -2,14 +2,18 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — file modes and secret redaction (AIHO-033)
+## Unreleased — hardening (AIHO-023, AIHO-033)
 
-- The managed directory is created **`0700`** and every file it writes is
-  **`0600`** (owner-only). On Windows the POSIX mode is not enforced by the OS.
-- Options may be marked **`secret: true`**; their values are then **redacted**
-  (`***`) in console output. The real value is still written to the managed file
-  and remains owner-only.
-- Documented the policy in `SECURITY.md`.
+- **File modes and secrets (AIHO-033).** The managed directory is created
+  **`0700`** and every file it writes is **`0600`** (owner-only). On Windows the
+  POSIX mode is not enforced by the OS. Options may be marked **`secret: true`**;
+  their values are then **redacted** (`***`) in console output. Documented in
+  `SECURITY.md`.
+- **MCP resources and prompts (AIHO-023).** The server now also exposes
+  resources — `aiho://registry/options`, `aiho://host/profile`,
+  `aiho://host/checklist`, and `aiho://docs/*` — and prompts —
+  `optimize_local_ai_host`, `explain_option`, `interpret_benchmark`. Additive:
+  the tools remain the portable path.
 
 ## 1.7.0 — 2026-11-20
 

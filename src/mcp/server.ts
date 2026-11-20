@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import { createEngine, type Engine } from "../core/engine.js";
 import { ROLE_NAMES, ROLE_DESCRIPTORS } from "../core/roles.js";
+import { OPTIONS } from "../registry/options.js";
 import { renderChecklist } from "../render/checklist.js";
 import { renderPlan } from "../render/plan.js";
 import type { ChecklistItem, OptimizationOption } from "../core/types.js";
@@ -236,6 +237,170 @@ export function createServer(engine: Engine = createEngine()): McpServer {
         benchmarkRunning = false;
       }
     },
+  );
+
+  // --- resources -------------------------------------------------------------
+  // The registry and docs are exposed as resources; host artifacts are read
+  // live. Tools remain the portable path (resources are additive).
+
+  server.registerResource(
+    "registry",
+    "aiho://registry/options",
+    {
+      title: "Option registry",
+      description: "The AI optimization option registry (JSON).",
+      mimeType: "application/json",
+    },
+    (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(OPTIONS.map(publicOption), null, 2),
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "host-profile",
+    "aiho://host/profile",
+    {
+      title: "Host profile",
+      description: "A live, read-only profile of this host.",
+      mimeType: "application/json",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(await engine.profile(), null, 2),
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "host-checklist",
+    "aiho://host/checklist",
+    {
+      title: "Host checklist",
+      description: "Options for this host with applicability and current configuration.",
+      mimeType: "application/json",
+    },
+    async (uri) => {
+      const profile = await engine.profile();
+      const items = await engine.checklist();
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify({ role: profile.role, items: items.map(publicChecklistItem) }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  for (const doc of ["architecture.md", "registry-schema.md", "publishing.md"]) {
+    const slug = doc.replace(/\.md$/, "");
+    server.registerResource(
+      `docs-${slug}`,
+      `aiho://docs/${slug}`,
+      { title: `Docs: ${slug}`, description: `Project documentation (${doc}).`, mimeType: "text/markdown" },
+      (uri) => {
+        let text: string;
+        try {
+          const here = dirname(fileURLToPath(import.meta.url));
+          text = readFileSync(join(here, "..", "..", "docs", doc), "utf8");
+        } catch {
+          text = `(documentation "${doc}" is not available in this installation)`;
+        }
+        return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
+      },
+    );
+  }
+
+  // --- prompts ---------------------------------------------------------------
+
+  server.registerPrompt(
+    "optimize_local_ai_host",
+    {
+      title: "Optimize this AI host",
+      description: "Review the host and propose a safe, honest set of optimizations.",
+      argsSchema: { role: roleField },
+    },
+    ({ role }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              `Use the ai-host-optimizer MCP tools to review this host${role ? ` (role: ${role})` : ""}.\n` +
+              "1. Call `profile` for the host facts.\n" +
+              "2. Call `checklist` — note which options are already implemented vs not.\n" +
+              "3. Call `recommend` for a safe, conflict-free set.\n" +
+              "Summarise what is already optimal, what is outstanding, and the expected impact with " +
+              "its confidence tier (A measured / B cited / C qualitative). Do not invent numbers — a " +
+              "tier-C option is qualitative. Remind the user that applying changes needs explicit consent.",
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "explain_option",
+    {
+      title: "Explain an optimization option",
+      description: "Explain one registry option and whether it applies here.",
+      argsSchema: { id: z.string().describe("Option id, e.g. kv-cache-quant-q8.") },
+    },
+    ({ id }) => {
+      const option = OPTIONS.find((o) => o.id === id);
+      const detail = option
+        ? JSON.stringify(publicOption(option), null, 2)
+        : `(no option with id "${id}")`;
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text:
+                "Explain this AI-host optimization option in plain terms, including whether it " +
+                `applies on this host and its confidence tier:\n\n${detail}`,
+            },
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerPrompt(
+    "interpret_benchmark",
+    {
+      title: "Interpret a benchmark",
+      description: "Run the benchmark and interpret the numbers honestly.",
+      argsSchema: { profile: z.enum(["decode", "prefill", "throughput", "load"]).optional() },
+    },
+    ({ profile }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              `Call the \`benchmark\` tool${profile ? ` with profile "${profile}"` : ""}, then interpret ` +
+              "the result honestly: report the median and the confidence interval, note the run-to-run " +
+              "spread, and state plainly whether a change is distinguishable from noise. Do not overstate.",
+          },
+        },
+      ],
+    }),
   );
 
   return server;

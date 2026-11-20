@@ -123,3 +123,41 @@ test("plan rejects an over-long selection (input bounds)", async () => {
     await close();
   }
 });
+
+test("the server exposes the registry, docs and host artifacts as resources", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    assert.ok(uris.includes("aiho://registry/options"));
+    assert.ok(uris.includes("aiho://host/profile"));
+    assert.ok(uris.includes("aiho://host/checklist"));
+    assert.ok(uris.some((u) => u.startsWith("aiho://docs/")));
+
+    const reg = await client.readResource({ uri: "aiho://registry/options" });
+    const text = (reg.contents[0] as { text: string }).text;
+    const parsed = JSON.parse(text) as unknown[];
+    assert.ok(Array.isArray(parsed) && parsed.length > 0);
+  } finally {
+    await close();
+  }
+});
+
+test("the server exposes prompts for the common workflows", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const { prompts } = await client.listPrompts();
+    const names = prompts.map((p) => p.name);
+    assert.ok(names.includes("optimize_local_ai_host"));
+    assert.ok(names.includes("explain_option"));
+    assert.ok(names.includes("interpret_benchmark"));
+
+    const explained = await client.getPrompt({
+      name: "explain_option",
+      arguments: { id: "kv-cache-quant-q8" },
+    });
+    assert.equal(explained.messages[0]?.role, "user");
+  } finally {
+    await close();
+  }
+});
