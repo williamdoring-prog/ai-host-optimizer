@@ -51,8 +51,9 @@ containment are enforced once rather than re-implemented per UI.
 | `src/core/engine.ts` | The engine facade — the single enforcement seam. |
 | `src/registry/options.ts` | **The option registry — data.** Single source of truth. |
 | `src/registry/validate.ts` | CI entry point for registry validation. |
-| `src/render/` | Shared renderers (profile, checklist, plan) + sink encoders. |
+| `src/render/` | Shared renderers (profile, checklist, plan, summary) + sink encoders. |
 | `src/cli/launcher.ts` | Arg parsing, role resolution, terminal output. |
+| `src/cli/tui.ts` | Dependency-free interactive checkbox selector (raw mode). |
 | `src/mcp/server.ts` | MCP stdio server (read-only tools, structured outputs). |
 | `src/index.ts` | Entry point. |
 

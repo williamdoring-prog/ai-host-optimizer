@@ -39,8 +39,9 @@ import { compare, loadBaseline, type BenchmarkProfileId } from "../core/benchmar
 import { detectRuntime } from "../core/runtimes.js";
 import { loadCalibrations } from "../core/calibration.js";
 import { detectConfiguration, isOptimalConfiguration } from "../core/checklist.js";
-import { renderChecklist, applyabilityLabel, optimalMessage } from "../render/checklist.js";
+import { renderChecklist, renderSummary, applyabilityLabel, optimalMessage } from "../render/checklist.js";
 import { renderPlan } from "../render/plan.js";
+import { selectChanges, type TuiItem } from "./tui.js";
 
 export { ROLES };
 
@@ -54,6 +55,7 @@ export interface CliArgs {
   role?: SystemRole;
   list?: boolean;
   recommend?: boolean;
+  interactive?: boolean;
   doctor?: boolean;
   json?: boolean;
   plan?: boolean;
@@ -100,6 +102,10 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case "--recommend":
         args.recommend = true;
+        break;
+      case "--interactive":
+      case "-i":
+        args.interactive = true;
         break;
       case "--doctor":
         args.doctor = true;
@@ -189,6 +195,7 @@ Interfaces:
 Commands:
   --list                            list every option (read-only)
   --recommend                       auto-select a safe, conflict-free set
+  --interactive, -i                 review and apply changes with a checkbox UI
   --plan                            show a plan for --select <ids>
   --apply [--yes]                   apply the plan (DRY-RUN unless --yes)
   --revert                          undo the last apply
@@ -292,6 +299,101 @@ export async function runRecommend(engine: Engine, role: SystemRole, json = fals
     return;
   }
   stdout.write("No safe, applyable options were found for this host.\n");
+}
+
+/**
+ * --interactive: review the system, then choose changes with a checkbox UI.
+ * Arrow keys move, space/left/right toggle, Enter applies, Escape quits. The
+ * recommended, safe changes are pre-selected; applying needs an explicit "Y".
+ */
+export async function runInteractiveApply(engine: Engine, role: SystemRole): Promise<void> {
+  if (!stdin.isTTY) {
+    stdout.write("The interactive selector needs a terminal (TTY). Use --recommend instead.\n");
+    return;
+  }
+
+  stdout.write("Reviewing this system…\n");
+  const profile = await engine.profile(role);
+  const items = await engine.checklist(role);
+
+  if (isOptimalConfiguration(items)) {
+    stdout.write(`\n${renderSummary(profile, items, VERSION)}\n\n${optimalMessage(VERSION)}\n`);
+    return;
+  }
+
+  const plan = await engine.recommend(role);
+  const recommended = new Set(plan.steps.map((s) => s.option.id));
+  const actionable = items.filter(
+    (i) => i.applicable && i.option.applyOp !== undefined && i.configuration?.state !== "implemented",
+  );
+  if (actionable.length === 0) {
+    stdout.write(`\n${renderSummary(profile, items, VERSION)}\n`);
+    stdout.write("\nNo applyable changes are available for this host.\n");
+    return;
+  }
+
+  const tuiItems: TuiItem[] = actionable.map((i) => ({
+    id: i.option.id,
+    name: i.option.name,
+    risk: i.option.risk,
+    conflictsWith: i.option.conflictsWith,
+    exclusiveGroup: i.option.exclusiveGroup,
+    recommended: recommended.has(i.option.id),
+    selected: recommended.has(i.option.id),
+  }));
+
+  stdout.write(`\n${renderSummary(profile, items, VERSION)}\n\n`);
+  const result = await selectChanges(tuiItems, {
+    title: `Select changes to implement — ${actionable.length} available, recommended safe changes pre-selected`,
+  });
+  if (result.quit) {
+    stdout.write("\nCancelled — no changes made.\n");
+    return;
+  }
+  if (result.selected.length === 0) {
+    stdout.write("\nNothing selected — no changes made.\n");
+    return;
+  }
+
+  // Resolve the selection into a validated, conflict-free plan and preview it.
+  const selectedPlan = await engine.plan(result.selected, role);
+  const ids = selectedPlan.steps.map((s) => s.option.id);
+  let preview;
+  try {
+    preview = await engine.apply(selectedPlan, { consent: false, dryRun: true, role });
+  } catch (err) {
+    stdout.write(`\n${(err as Error).message}\n`);
+    return;
+  }
+
+  stdout.write(`\nSelected ${ids.length} change(s):\n`);
+  for (const id of ids) stdout.write(`  + ${id}\n`);
+  if (preview.plan.files.length) {
+    stdout.write("\nFiles to write (inside the managed directory):\n");
+    for (const f of preview.plan.files) stdout.write(`  ${f.path}\n`);
+  }
+  if (preview.plan.notes.length) {
+    stdout.write("\nManual steps (never run for you):\n");
+    for (const n of preview.plan.notes) stdout.write(`${n}\n`);
+  }
+
+  const rl = createInterface({ input: stdin, output: stdout });
+  const answer = (await rl.question("\nApply these changes to the system? Type Y to confirm: "))
+    .trim();
+  rl.close();
+  if (!/^y$/i.test(answer)) {
+    stdout.write("Aborted — no changes made.\n");
+    return;
+  }
+
+  try {
+    const outcome = await engine.apply(selectedPlan, { consent: true, dryRun: false, role });
+    stdout.write(`\nApplied ${outcome.result.written.length} file(s) into the managed directory.\n`);
+    stdout.write(`Activate (bash/zsh):  source ${managedDir()}/activate.sh\n`);
+    stdout.write("Revert any time:  ai-host-optimizer --revert\n");
+  } catch (err) {
+    stdout.write(`\n${(err as Error).message}\n`);
+  }
 }
 
 /** --plan */
@@ -596,15 +698,19 @@ export async function runInteractive(engine: Engine, role?: SystemRole): Promise
     stdout.write(`ai-host-optimizer v${VERSION}\n\n`);
     stdout.write("Choose an interface:\n");
     stdout.write("  1) Terminal report (CLI)\n");
-    stdout.write("  2) Browser UI   (not yet implemented)\n");
-    stdout.write("  3) Desktop UI   (not yet implemented)\n");
-    stdout.write("  4) MCP server\n");
+    stdout.write("  2) Review and apply changes (interactive checkboxes)\n");
+    stdout.write("  3) Browser UI   (not yet implemented)\n");
+    stdout.write("  4) Desktop UI   (not yet implemented)\n");
+    stdout.write("  5) MCP server\n");
     const answer = (await rl.question("> ")).trim();
     switch (answer) {
       case "1":
         await runCli(engine, role);
         break;
-      case "4":
+      case "2":
+        await runInteractiveApply(engine, role ?? "workstation");
+        break;
+      case "5":
         await runMcpServer();
         break;
       default:
@@ -633,8 +739,8 @@ export async function main(argv: string[], engine: Engine = createEngine()): Pro
   }
 
   const hasCommand =
-    args.list || args.recommend || args.doctor || args.plan || args.apply || args.revert ||
-    args.benchmark || args.calibrate || args.generate || args.cli;
+    args.list || args.recommend || args.interactive || args.doctor || args.plan || args.apply ||
+    args.revert || args.benchmark || args.calibrate || args.generate || args.cli;
 
   // Only prompt for a role when no command was given (keeps scripting non-interactive).
   let role = args.role;
@@ -647,6 +753,10 @@ export async function main(argv: string[], engine: Engine = createEngine()): Pro
   }
   if (args.recommend) {
     await runRecommend(engine, role, args.json);
+    return;
+  }
+  if (args.interactive) {
+    await runInteractiveApply(engine, role);
     return;
   }
   if (args.doctor) {

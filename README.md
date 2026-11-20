@@ -129,6 +129,18 @@ be an improvement (it can never set a value worse than the default). Everything
 else is **advisory**: `--apply` says so plainly rather than doing nothing
 silently.
 
+### Interactive selection
+
+`ai-host-optimizer --interactive` reviews the system, then shows a checkbox list
+of the changes to implement:
+
+- **↑/↓** move, **space** (or **←/→**) toggle, **a**/**n** select all / none.
+- **Recommended, safe changes are pre-selected**; everything else starts
+  unchecked. Selecting an option automatically deselects any conflicting or
+  one-of rival.
+- **Enter** implements — it prints the resolved plan and the files to be written,
+  then asks you to type **Y** to confirm. **Escape** quits without changes.
+
 ## Use as an MCP server
 
 Add to your MCP client (e.g. Claude Desktop):

@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — interactive selector
+
+- **`--interactive` (`-i`)**: after a system review, choose changes with a
+  dependency-free checkbox UI — **↑/↓** move, **space**/**←**/**→** toggle,
+  **a**/**n** select-all/none, **Enter** to implement, **Esc** to quit.
+  Recommended, safe changes are pre-selected; the rest start unchecked.
+- Selecting an option **deselects any conflicting or exclusive-group rival**, so
+  the selection is always a valid plan.
+- **Enter** shows the resolved plan and the files to be written, then requires an
+  explicit **Y** to apply. Declining (or Escape) makes no changes.
+- Also available as option **2** in the interactive menu.
+
 ## 1.6.0 — 2026-11-20
 
 Capability vs configuration: reports compare **what could apply** against **what
