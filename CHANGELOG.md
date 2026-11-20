@@ -2,7 +2,9 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — hardening (AIHO-023, AIHO-033)
+## 1.8.0 — 2026-11-20
+
+Hardening: owner-only managed files, secret redaction, and MCP resources/prompts.
 
 - **File modes and secrets (AIHO-033).** The managed directory is created
   **`0700`** and every file it writes is **`0600`** (owner-only). On Windows the

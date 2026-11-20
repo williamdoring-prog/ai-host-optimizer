@@ -1,6 +1,6 @@
 {
   "name": "ai-host-optimizer",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "mcpName": "io.github.williamdoring-prog/ai-host-optimizer",
   "description": "Profile a host and recommend AI-model optimizations. Read-only by default; applies only user-selected, reversible changes with explicit consent.",
   "type": "module",
