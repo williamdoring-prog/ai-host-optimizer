@@ -38,6 +38,7 @@ import { managedDir } from "../core/paths.js";
 import { compare, loadBaseline, type BenchmarkProfileId } from "../core/benchmark.js";
 import { detectRuntime } from "../core/runtimes.js";
 import { loadCalibrations } from "../core/calibration.js";
+import { detectConfiguration } from "../core/checklist.js";
 import { renderChecklist, applyabilityLabel } from "../render/checklist.js";
 import { renderPlan } from "../render/plan.js";
 
@@ -246,13 +247,16 @@ export function runList(json = false): void {
         risk: o.risk,
         tier: o.expectedImprovement.tier,
         platforms: o.platforms,
+        configuration: detectConfiguration(o)?.state ?? "n/a",
       })),
     );
     return;
   }
   stdout.write(`Option registry (${OPTIONS.length} options)\n\n`);
   for (const o of OPTIONS) {
-    stdout.write(`  ${applyabilityLabel(o)} ${o.id}\n`);
+    const state = detectConfiguration(o)?.state;
+    const tag = state === "configured" ? " [already set]" : state === "partial" ? " [partially set]" : "";
+    stdout.write(`  ${applyabilityLabel(o)} ${o.id}${tag}\n`);
     stdout.write(`      ${o.name} — ${o.category}, risk ${o.risk}\n`);
   }
 }
@@ -525,6 +529,15 @@ export async function runDoctor(engine: Engine, role: SystemRole, json = false):
     name: "calibrations",
     ok: true,
     detail: `${Object.keys(calibrations).length} entr(y/ies)`,
+  });
+
+  // Capabilities vs configuration: how many options are already set.
+  const configured = OPTIONS.filter((o) => detectConfiguration(o)?.state === "configured").length;
+  const partial = OPTIONS.filter((o) => detectConfiguration(o)?.state === "partial").length;
+  checks.push({
+    name: "configuration",
+    ok: true,
+    detail: `${configured} option(s) already set, ${partial} partially set`,
   });
 
   if (json) {

@@ -75,7 +75,20 @@ export function renderProfile(profile: HostProfile): string {
   return lines.join("\n");
 }
 
-/** Render the read-only checklist (profile + options). */
+/** The status glyph for a checklist item: n/a, already set, partial, or todo. */
+export function checklistMark(item: ChecklistItem): string {
+  if (!item.applicable) return "[x] n/a";
+  switch (item.configuration?.state) {
+    case "configured":
+      return "[✓] set";
+    case "partial":
+      return "[~] part";
+    default:
+      return "[ ]";
+  }
+}
+
+/** Render the read-only checklist (profile + options + configuration). */
 export function renderChecklist(
   profile: HostProfile,
   items: ChecklistItem[],
@@ -91,11 +104,19 @@ export function renderChecklist(
   if (advisory) lines.push("NOTE: this role is ADVISORY ONLY — the tool will not apply changes here.");
   if (roleNote || advisory) lines.push("");
 
+  const applicable = items.filter((i) => i.applicable);
+  const configured = applicable.filter((i) => i.configuration?.state === "configured");
+  const partial = applicable.filter((i) => i.configuration?.state === "partial");
+  lines.push(
+    `Capabilities vs configuration: ${applicable.length}/${items.length} options applicable; ` +
+      `${configured.length} already configured, ${partial.length} partially.`,
+    "",
+  );
+
   lines.push("Optimization checklist (read-only)", "");
   for (const item of items) {
     const o = item.option;
-    const mark = item.applicable ? "[ ]" : "[x] n/a";
-    lines.push(`${mark} ${applyabilityLabel(o)} ${o.name}  (${o.id})`);
+    lines.push(`${checklistMark(item)} ${applyabilityLabel(o)} ${o.name}  (${o.id})`);
     lines.push(`      improves ${improvementSummary(o)}`);
     lines.push(`      risk ${o.risk}; ${o.reversibility}; privilege ${o.requiresPrivilege}`);
     if (o.exclusiveGroup) lines.push(`      one-of group: ${o.exclusiveGroup}`);
@@ -104,6 +125,16 @@ export function renderChecklist(
     if (o.synergizesWith.length) lines.push(`      synergy: ${o.synergizesWith.join(", ")}`);
     if (o.requires.length) lines.push(`      requires: ${o.requires.join(", ")}`);
     if (!item.applicable && item.reason) lines.push(`      n/a: ${item.reason}`);
+    if (item.configuration && item.configuration.state !== "unset") {
+      const detail = item.configuration.checks
+        .map((c) => {
+          if (c.current === undefined) return `${c.name}=(unset) → want ${c.desired}`;
+          return c.satisfied ? `${c.name}=${c.current} (ok)` : `${c.name}=${c.current} → want ${c.desired}`;
+        })
+        .join(", ");
+      lines.push(`      config: ${item.configuration.state} — ${detail}`);
+    }
+    if (item.appliedByTool) lines.push("      applied by this tool (see --revert)");
     lines.push("");
   }
   return lines.join("\n");

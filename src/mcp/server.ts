@@ -95,6 +95,8 @@ function publicChecklistItem(item: ChecklistItem): Record<string, unknown> {
     blockedBy: item.blockedBy,
     advisoryOnly: item.advisoryOnly,
     roleNote: item.roleNote,
+    configuration: item.configuration,
+    appliedByTool: item.appliedByTool,
   };
 }
 

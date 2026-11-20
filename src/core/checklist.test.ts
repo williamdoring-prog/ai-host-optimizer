@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { OPTIONS } from "../registry/options.js";
-import { buildChecklist, isAdvisoryRole, validateRegistry } from "./checklist.js";
+import { buildChecklist, detectConfiguration, isAdvisoryRole, validateRegistry } from "./checklist.js";
 import type { HostProfile, OptimizationOption } from "./types.js";
 
 const fakeLinux: HostProfile = {
@@ -294,4 +294,55 @@ test("numeric levers use the guarded size op", () => {
     assert.equal(option.applyOp, "size", `${id} should use the size op`);
     assert.ok(option.size, `${id} should declare a size guard`);
   }
+});
+
+// --- capability vs configuration ---------------------------------------------
+
+test("detectConfiguration compares desired values to the environment", () => {
+  const opt = option({ applyOp: "env", env: { ollama: { A: "1", B: "2" } } });
+  assert.equal(detectConfiguration(opt, {})?.state, "unset");
+  assert.equal(detectConfiguration(opt, { A: "1", B: "2" })?.state, "configured");
+  assert.equal(detectConfiguration(opt, { A: "1" })?.state, "partial");
+  assert.equal(detectConfiguration(opt, { A: "9", B: "2" })?.state, "partial");
+  assert.equal(detectConfiguration(opt, {})?.checks.length, 2);
+  // Advisory options with no env have nothing to compare.
+  assert.equal(detectConfiguration(option(), {}), undefined);
+});
+
+test("a size option is configured when the current value is already at least as good", () => {
+  const higher = option({
+    applyOp: "size",
+    env: { ollama: { X: "8192" } },
+    size: { defaultValue: 4096 },
+  });
+  assert.equal(detectConfiguration(higher, { X: "8192" })?.state, "configured");
+  assert.equal(detectConfiguration(higher, { X: "40000" })?.state, "configured"); // already higher
+  assert.equal(detectConfiguration(higher, { X: "2048" })?.state, "partial"); // below the desired value
+  assert.equal(detectConfiguration(higher, {})?.state, "unset");
+
+  const lower = option({
+    applyOp: "size",
+    env: { ollama: { Y: "10" } },
+    size: { defaultValue: 100, direction: "lower" },
+  });
+  assert.equal(detectConfiguration(lower, { Y: "5" })?.state, "configured"); // already lower
+  assert.equal(detectConfiguration(lower, { Y: "50" })?.state, "partial");
+});
+
+test("buildChecklist reports already-configured options", () => {
+  const items = buildChecklist(fakeLinux, OPTIONS, { OLLAMA_CONTEXT_LENGTH: "8192" });
+  const ctx = items.find((i) => i.option.id === "ollama-context-length")!;
+  assert.equal(ctx.configuration?.state, "configured");
+
+  // A higher current value is also "configured" (applying would not improve it).
+  const higher = buildChecklist(fakeLinux, OPTIONS, { OLLAMA_CONTEXT_LENGTH: "40000" });
+  assert.equal(
+    higher.find((i) => i.option.id === "ollama-context-length")!.configuration?.state,
+    "configured",
+  );
+
+  // A partially-set multi-target option is reported as partial.
+  const partial = buildChecklist(fakeLinux, OPTIONS, { OLLAMA_KV_CACHE_TYPE: "q8_0" });
+  const kv = partial.find((i) => i.option.id === "kv-cache-quant-q8")!;
+  assert.equal(kv.configuration?.state, "partial");
 });

@@ -230,6 +230,11 @@ claims a win.
   **one-of groups**; stackable options are marked **stackable**.
 - **Role-aware**: a `container` cannot tune the host kernel; a `cluster-node` is
   **advisory-only**.
+- **Capability vs configuration**: the checklist compares each option's target
+  variables against your current environment and marks them `[ ]` todo,
+  `[~] partially set` or `[✓] already set`; `--recommend` skips what is already
+  configured. Numeric (`size`) options are compared direction-aware, so a value
+  already higher than the desired one is never "improved" downwards.
 
 ## Requirements
 
@@ -297,6 +302,10 @@ Each option is one or the other, and the CLI/MCP tell you which:
 - **P2 (step 3)** — multi-runtime benchmarking: **llama.cpp server**
   (`/completion` timings) and **vLLM** (Prometheus `/metrics`), auto-detected on
   loopback, so non-Ollama options can reach tier A. ✅
+- **P2 (step 4)** — capability vs configuration: a configuration probe compares
+  each option's target variables against the current environment
+  (`[ ]` / `[~]` / `[✓]`), direction-aware for numeric options, and
+  `--recommend` skips what is already configured. ✅
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation

@@ -2,6 +2,27 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
+## Unreleased — capability vs configuration
+
+Reports now compare **what could apply** against **what is already configured**,
+instead of only listing capabilities.
+
+- **Configuration probe.** Each option's target environment variables are
+  compared against the current environment: `configured` (all satisfied),
+  `partial` (some set / set differently) or `unset`.
+- **Direction-aware for `size` options.** A numeric variable already at least as
+  good as the desired value counts as configured — so an option that would
+  *reduce* a higher existing value (e.g. a context length already set above the
+  desired one) is not recommended.
+- **Surfaced everywhere:** the checklist marks items `[ ]` / `[~] partially set` /
+  `[✓] already set` with a per-variable detail line, `--list` tags options,
+  `--doctor` summarises the counts, `--json` and the MCP `checklist` include the
+  comparison, and `--recommend` skips fully configured options.
+- Options the tool itself applied (per `state.json`) are marked "applied by this
+  tool".
+- Honest caveat: the probe proves the variable is set in the environment, not
+  that a running server has picked it up.
+
 ## 1.5.0 — 2026-11-20
 
 Multi-runtime benchmarking: tier-A evidence is no longer Ollama-only, so options

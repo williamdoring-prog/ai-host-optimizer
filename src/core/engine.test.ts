@@ -23,6 +23,7 @@ function engineWith(overrides: Partial<EngineDeps> = {}): Engine {
     loadCalibrations: async () => ({}),
     managedDir: () => "/tmp/aiho-engine-test",
     applyPlan: async (_plan, dryRun) => ({ dryRun: dryRun ?? true, written: [] }),
+    readState: async () => undefined,
     ...overrides,
   });
 }
@@ -44,6 +45,28 @@ test("recommend can include advisory options on request", async () => {
   const engine = engineWith();
   const plan = await engine.recommend("workstation", { includeAdvisory: true });
   assert.ok(plan.steps.some((s) => s.option.applyOp === undefined));
+});
+
+test("recommend skips options that are already configured", async () => {
+  const saved = { ...process.env };
+  process.env["OLLAMA_CONTEXT_LENGTH"] = "8192";
+  try {
+    const plan = await engineWith().recommend("workstation");
+    const ids = plan.steps.map((s) => s.option.id);
+    assert.ok(!ids.includes("ollama-context-length"), "already-configured option must be skipped");
+    assert.ok(ids.includes("flash-attention"), "unconfigured options are still recommended");
+  } finally {
+    process.env = saved;
+  }
+});
+
+test("checklist marks options the tool applied (from state)", async () => {
+  const engine = engineWith({ readState: async () => ({ optionIds: ["flash-attention"] }) });
+  const items = await engine.checklist("workstation");
+  const fa = items.find((i) => i.option.id === "flash-attention")!;
+  assert.equal(fa.appliedByTool, true);
+  const kv = items.find((i) => i.option.id === "kv-cache-quant-q8")!;
+  assert.notEqual(kv.appliedByTool, true);
 });
 
 test("apply allows a dry run without consent but refuses a real write", async () => {

@@ -26,6 +26,7 @@ function fakeEngine() {
     profileHost: async (role) => ({ ...profile, role }),
     loadCalibrations: async () => ({}),
     managedDir: () => "/tmp/aiho-mcp-test",
+    readState: async () => undefined,
   });
 }
 

@@ -13,7 +13,9 @@ import { fileURLToPath } from "node:url";
 import type {
   ChecklistItem,
   HostProfile,
+  OptionConfiguration,
   OptimizationOption,
+  SizeGuard,
   SystemRole,
 } from "./types.js";
 import { COMBINE_MODELS, isApplyOpId } from "./applyops.js";
@@ -255,13 +257,54 @@ export function isAdvisoryRole(role: SystemRole | undefined): boolean {
 }
 
 /**
- * Build the checklist for a host: each option annotated with applicability and
- * the set of options it conflicts with (so a UI can enforce exclusivity).
+ * Does the current value already meet or beat the desired value? Exact match, or
+ * — for a `size` option — numerically at least as good in the desired direction,
+ * so applying the option would not be an improvement.
+ */
+function valueSatisfies(desired: string, current: string, guard?: SizeGuard): boolean {
+  if (current === desired) return true;
+  if (!guard) return false;
+  const d = Number(desired);
+  const c = Number(current);
+  if (!Number.isFinite(d) || !Number.isFinite(c)) return false;
+  return (guard.direction ?? "higher") === "higher" ? c >= d : c <= d;
+}
+
+/**
+ * Compare an option's desired configuration against the current environment.
+ *
+ * This is what turns a *capability* report into a *capability vs configuration*
+ * report: an option whose target variables already satisfy the desired values is
+ * reported as configured rather than as a change to make. `undefined` for
+ * options that declare no environment (advisory-only).
+ */
+export function detectConfiguration(
+  option: OptimizationOption,
+  env: Record<string, string | undefined> = process.env,
+): OptionConfiguration | undefined {
+  const vars = Object.values(option.env ?? {}).flatMap((target) => Object.entries(target));
+  if (vars.length === 0) return undefined;
+
+  const checks = vars.map(([name, desired]) => {
+    const current = env[name];
+    const satisfied = current !== undefined && valueSatisfies(desired, current, option.size);
+    return { name, desired, current, satisfied };
+  });
+  const matched = checks.filter((c) => c.satisfied).length;
+  const anySet = checks.some((c) => c.current !== undefined);
+  const state = matched === checks.length ? "configured" : anySet ? "partial" : "unset";
+  return { state, checks };
+}
+
+/**
+ * Build the checklist for a host: each option annotated with applicability, the
+ * set of options it conflicts with, and its current configuration state.
  * Role-aware (D-036).
  */
 export function buildChecklist(
   profile: HostProfile,
   options: OptimizationOption[],
+  env: Record<string, string | undefined> = process.env,
 ): ChecklistItem[] {
   const advisory = isAdvisoryRole(profile.role);
   const roleNote = roleNoteFor(profile.role);
@@ -274,6 +317,7 @@ export function buildChecklist(
       blockedBy: [...option.conflictsWith],
       advisoryOnly: advisory || undefined,
       roleNote,
+      configuration: detectConfiguration(option, env),
     };
   });
 }

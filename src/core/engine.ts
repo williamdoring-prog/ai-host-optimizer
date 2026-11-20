@@ -32,6 +32,7 @@ import {
 import {
   applyPlan as applyPlanToDisk,
   buildApplyPlan,
+  readState as readAppliedState,
   revert as revertDisk,
   type ApplyPlan,
   type ApplyResult,
@@ -105,6 +106,8 @@ export interface EngineDeps {
   recordCalibration: (entry: CalibrationEntry) => Promise<string>;
   applyPlan: (plan: ApplyPlan, dryRun?: boolean, dir?: string) => Promise<ApplyResult>;
   revert: (dir?: string) => Promise<RevertResult>;
+  /** Read the tool's own applied state (option ids it has written). */
+  readState: () => Promise<{ optionIds: string[] } | undefined>;
   managedDir: () => string;
 }
 
@@ -134,6 +137,7 @@ export function defaultEngineDeps(): EngineDeps {
     recordCalibration,
     applyPlan: applyPlanToDisk,
     revert: revertDisk,
+    readState: () => readAppliedState(),
     managedDir,
   };
 }
@@ -147,7 +151,19 @@ class EngineImpl implements Engine {
 
   async checklist(role?: SystemRole): Promise<ChecklistItem[]> {
     const profile = await this.deps.profileHost(role);
-    return buildChecklist(profile, this.deps.options);
+    const items = buildChecklist(profile, this.deps.options);
+    // Mark options the tool itself applied (per state.json). A corrupt state
+    // file must not break the read-only checklist.
+    try {
+      const state = await this.deps.readState();
+      if (state) {
+        const applied = new Set(state.optionIds);
+        for (const item of items) if (applied.has(item.option.id)) item.appliedByTool = true;
+      }
+    } catch {
+      // ignore
+    }
+    return items;
   }
 
   async plan(ids: string[], role?: SystemRole): Promise<Plan> {
@@ -165,8 +181,11 @@ class EngineImpl implements Engine {
     const profile = await this.deps.profileHost(role);
     const calibrations = await this.deps.loadCalibrations();
     const items = buildChecklist(profile, this.deps.options);
+    // Capabilities vs configuration: never recommend what is already configured.
     const applicable = new Map(
-      items.filter((i) => i.applicable).map((i) => [i.option.id, i.option]),
+      items
+        .filter((i) => i.applicable && i.configuration?.state !== "configured")
+        .map((i) => [i.option.id, i.option]),
     );
     const maxRisk = opts.risk ? RISK_RANK[opts.risk] : 2;
 

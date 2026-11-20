@@ -128,6 +128,28 @@ honest alternative: it widens automatically when the run-to-run spread is large,
 so a difference is claimed only when it is larger than the noise it was measured
 against.
 
+## Capabilities vs configuration
+
+A checklist of *what could apply* is not the same as *what is already set*. The
+profiler's `context` block answers "what is available"; a **configuration probe**
+answers "what is already configured" by comparing each option's target
+environment variables against the current environment:
+
+- `configured` — every target variable already meets or beats the desired value
+  (for `size` options, compared numerically in the option's direction, so a value
+  already higher is not reported as an improvement);
+- `partial` — some target variables are set (or set differently);
+- `unset` — none are set.
+
+The checklist renders this as `[ ]` / `[~]` / `[✓]`, `--recommend` skips fully
+configured options, `--doctor` summarises the counts, and the MCP `checklist` tool
+returns the comparison per option. The tool's own applied state (`state.json`)
+also marks options as applied.
+
+Caveat: the probe proves the variable is set *in this environment*, not that the
+running server has picked it up — restart the runtime if it started before the
+variable was set.
+
 ## Roadmap
 
 - **M0** — read-only profiler, registry, checklist, CLI + MCP. ✅

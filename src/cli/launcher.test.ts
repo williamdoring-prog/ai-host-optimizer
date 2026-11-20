@@ -23,6 +23,7 @@ function fakeEngine(): Engine {
     loadCalibrations: async () => ({}),
     managedDir: () => "/tmp/aiho-cli-test",
     applyPlan: async (_plan, dryRun) => ({ dryRun: dryRun ?? true, written: [] }),
+    readState: async () => undefined,
   });
 }
 

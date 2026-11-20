@@ -274,4 +274,34 @@ export interface ChecklistItem {
   advisoryOnly?: boolean;
   /** A role-specific note to display. */
   roleNote?: string;
+  /**
+   * Current configuration vs the option's desired values: whether its target
+   * environment variables are already set (capabilities vs configuration).
+   */
+  configuration?: OptionConfiguration;
+  /** True when the tool itself previously applied this option (per state.json). */
+  appliedByTool?: boolean;
+}
+
+/** How an option's desired configuration compares to the current environment. */
+export type ConfigurationState = "configured" | "partial" | "unset";
+
+/** One target variable, desired vs currently set. */
+export interface ConfigurationCheck {
+  name: string;
+  desired: string;
+  /** The value currently in the environment, if any. */
+  current?: string;
+  /**
+   * True when the current value already meets or beats the desired value
+   * (exact match, or — for a `size` option — numerically at least as good in
+   * the desired direction, so applying it would not be an improvement).
+   */
+  satisfied: boolean;
+}
+
+/** The configuration comparison for one option. */
+export interface OptionConfiguration {
+  state: ConfigurationState;
+  checks: ConfigurationCheck[];
 }
