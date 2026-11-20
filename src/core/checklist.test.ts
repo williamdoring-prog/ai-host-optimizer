@@ -280,3 +280,18 @@ test("isAdvisoryRole is true only for governed/ephemeral roles", () => {
   assert.equal(isAdvisoryRole("workstation"), false);
   assert.equal(isAdvisoryRole(undefined), false);
 });
+
+test("numeric levers use the guarded size op", () => {
+  for (const id of [
+    "ollama-context-length",
+    "llama-ctx-size",
+    "llama-batch-size",
+    "llama-ubatch-size",
+    "ollama-max-queue",
+    "ollama-num-parallel",
+  ]) {
+    const option = OPTIONS.find((o) => o.id === id)!;
+    assert.equal(option.applyOp, "size", `${id} should use the size op`);
+    assert.ok(option.size, `${id} should declare a size guard`);
+  }
+});

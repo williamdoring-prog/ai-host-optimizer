@@ -93,6 +93,12 @@ test("a size option contributes env and is recorded as the size op", () => {
   assert.ok(plan.files.some((f) => f.path.endsWith("ollama.env")));
 });
 
+test("llama.cpp size options render into llama.cpp.env", () => {
+  const plan = buildApplyPlan(planFor(["llama-batch-size", "llama-ubatch-size"]));
+  assert.equal(plan.envByTarget["llama.cpp"]?.["LLAMA_ARG_BATCH"], "4096");
+  assert.equal(plan.envByTarget["llama.cpp"]?.["LLAMA_ARG_UBATCH"], "1024");
+});
+
 test("a rejected option cannot be materialised by the applier", () => {
   // q4 conflicts (exclusive group) with q8, so the plan rejects it.
   const plan = planFor(["kv-cache-quant-q8", "kv-cache-quant-q4"]);

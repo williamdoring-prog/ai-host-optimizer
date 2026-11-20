@@ -2,9 +2,11 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — P2 depth (tranche 1)
+## Unreleased — P2 depth
 
 Deeper apply coverage without inflating the option list.
+
+**Tranche 1 — the `size` op.**
 
 - **New `size` apply op.** A `size` option sets exactly one numeric environment
   variable and declares the runtime's documented default; validation proves the
@@ -16,8 +18,20 @@ Deeper apply coverage without inflating the option list.
 - **Honest advisory entries**: `gpu-device-visibility` (the device list is
   host-specific), `hf-offline` (air-gap/reproducibility; breaks downloads until
   unset), and `ollama-models-path` (relocation; existing models are not moved).
-- Registry now **37 options, 11 applyable** (8 `env` + 2 `size` + 1
-  `systemd-dropin`).
+
+**Tranche 2 — more numeric levers.**
+
+- `llama-batch-size` and `llama-ubatch-size` (`size`; guarded against the 2048 /
+  512 defaults) for prefill throughput.
+- `ollama-max-queue` (`size`; guarded against the 512 default).
+- `ollama-num-parallel` migrated from `env` to `size` (guarded against the
+  default of 1 slot).
+- `llama-gpu-layers` added as **advisory** — the safe layer count is
+  model- and VRAM-dependent.
+
+Registry now **41 options, 14 applyable** (7 `env` + 6 `size` + 1
+`systemd-dropin`).
+
 - Docs: the launch kit and publishing guide are refreshed for the shipped CLI
   (tiers A/A−/B/C/N, bootstrap-CI verdicts, `--recommend`/`--json`/`--doctor`,
   registry `1.3.0`).

@@ -289,7 +289,10 @@ Each option is one or the other, and the CLI/MCP tell you which:
 - **P2 (tranche 1)** — a `size` apply op with a numeric guard (never set a value
   worse than the runtime default), context-length options for Ollama and
   llama.cpp, and honest advisory entries for GPU visibility / HF offline / model
-  store relocation. **37 options, 11 applyable.** ✅
+  store relocation. ✅
+- **P2 (tranche 2)** — more numeric levers via `size` (llama.cpp batch/ubatch,
+  Ollama queue), `ollama-num-parallel` migrated to the guarded op, and
+  `llama-gpu-layers` as advisory. **41 options, 14 applyable.** ✅
 - **M4** — browser UI and Tauri desktop UI. *(planned)*
 
 ## Documentation
