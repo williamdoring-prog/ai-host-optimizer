@@ -27,7 +27,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test \"dist/**/*.test.js\"",
+    "test": "node scripts/test.mjs",
     "validate:registry": "node dist/registry/validate.js",
     "prepublishOnly": "npm run build"
   },
