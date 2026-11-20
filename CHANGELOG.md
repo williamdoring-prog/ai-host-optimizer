@@ -2,9 +2,9 @@
 
 All notable changes to this project. Format: `YYYY-MM-DD — summary`.
 
-## Unreleased — P2 depth
+## 1.4.0 — 2026-11-20
 
-Deeper apply coverage without inflating the option list.
+P2 depth: deeper apply coverage without inflating the option list.
 
 **Tranche 1 — the `size` op.**
 
